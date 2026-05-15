@@ -451,15 +451,15 @@ k8s.warning
 
 ### 总览
 
-![1b02de24a971d9ca084ccd4c50e846cf](observability-platform/pic/total.png)
+![1b02de24a971d9ca084ccd4c50e846cf](pic/total.png)
 
 ### Incident 列表
 
-![5b6c3fb6c5e6254dfa2d4a54c68eba2f](observability-platform/pic/list.png)
+![5b6c3fb6c5e6254dfa2d4a54c68eba2f](pic/list.png)
 
 ### Incident 详情页
 
-![665e5978f8204a91ce7ad86430698c68](observability-platform/pic/detail.png)
+![665e5978f8204a91ce7ad86430698c68](pic/detail.png)
 
 
 
