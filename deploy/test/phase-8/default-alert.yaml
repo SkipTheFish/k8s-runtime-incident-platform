@@ -1,0 +1,10 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+metadata:
+  name: default-alert
+spec:
+  tenantID: "tenant-002"
+  policyName: default-alert
+  query: up
+  threshold: 0.5
+  operator: ">"

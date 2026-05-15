@@ -1,0 +1,14 @@
+apiVersion: observability.io/v1
+kind: ObservabilityTarget
+metadata:
+  name: demo-api
+  namespace: default
+spec:
+  tenantID: "t1"
+  serviceName: demo-api
+  namespace: default
+  selector:
+    app: demo-api
+  portName: http
+  scrapePath: /metrics
+  scrapeInterval: 30s

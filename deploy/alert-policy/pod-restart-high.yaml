@@ -1,0 +1,44 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+
+metadata:
+  name: pod-restart-alert
+  namespace: monitoring
+
+spec:
+  tenantID: t1
+
+  policyName: pod-restart-alert
+
+  query: |
+    increase(
+      kube_pod_container_status_restarts_total{
+        namespace="monitoring"
+      }[5m]
+    )
+
+  threshold: 3
+
+  operator: ">"
+
+  duration: 10s
+
+  severity: warning
+
+  enabled: true
+
+  notification: slack
+
+  runbookURL: https://example.com/runbook/pod-restart
+
+  owner: platform-team
+
+  labels:
+    managed_by: observability-platform
+    policy_name: pod-restart-alert
+    team: platform
+    env: dev
+
+  annotations:
+    summary: "Pod restart count too high"
+    description: "Container restarted multiple times within 5 minutes"

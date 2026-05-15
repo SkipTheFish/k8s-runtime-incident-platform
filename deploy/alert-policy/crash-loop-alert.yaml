@@ -1,0 +1,43 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+
+metadata:
+  name: crashloop-alert
+  namespace: monitoring
+
+spec:
+  tenantID: t1
+
+  policyName: crashloop-alert
+
+  query: |
+    kube_pod_container_status_waiting_reason{
+      namespace="monitoring",
+      reason="CrashLoopBackOff"
+    }
+
+  threshold: 0
+
+  operator: ">"
+
+  duration: 15s
+
+  severity: critical
+
+  enabled: true
+
+  notification: slack
+
+  runbookURL: https://example.com/runbook/crashloop
+
+  owner: platform-team
+
+  labels:
+    managed_by: observability-platform
+    policy_name: crashloop-alert
+    team: platform
+    env: dev
+
+  annotations:
+    summary: "Pod entered CrashLoopBackOff"
+    description: "Container repeatedly crashing and restarting"

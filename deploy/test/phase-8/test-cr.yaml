@@ -1,0 +1,13 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+metadata:
+  name: test-alert-1
+  namespace: default
+spec:
+  tenantID: "tenant-001"    # 对应 json:"tenantID"
+  policyName: "k8s-alert-1" # 对应 json:"policyName" (之前你写的是 name)
+  query: "up"               # 对应 json:"query"
+  threshold: 0.8            # 对应 json:"threshold"
+  operator: ">"             # 对应 json:"operator"
+  duration: "1m"            # 对应 json:"duration"
+  severity: "critical"      # 对应 json:"severity"

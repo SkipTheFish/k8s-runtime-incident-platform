@@ -1,0 +1,114 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: alertpolicies.observability.io
+spec:
+  group: observability.io
+  names:
+    kind: AlertPolicy
+    listKind: AlertPolicyList
+    plural: alertpolicies
+    singular: alertpolicy
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              annotations:
+                additionalProperties:
+                  type: string
+                type: object
+              duration:
+                type: string
+              enabled:
+                type: boolean
+              evaluationSec:
+                type: integer
+              labels:
+                additionalProperties:
+                  type: string
+                type: object
+              notification:
+                type: string
+              operator:
+                type: string
+              owner:
+                type: string
+              policyName:
+                type: string
+              query:
+                type: string
+              runbookURL:
+                type: string
+              severity:
+                type: string
+              tenantID:
+                type: string
+              threshold:
+                type: number
+            required:
+            - operator
+            - policyName
+            - query
+            - tenantID
+            - threshold
+            type: object
+          status:
+            properties:
+              activeAlerts:
+                type: integer
+              dbID:
+                format: int64
+                type: integer
+              lastError:
+                type: string
+              lastEvaluationTime:
+                format: date-time
+                type: string
+              lastResolvedAt:
+                format: date-time
+                type: string
+              lastSyncTime:
+                format: date-time
+                type: string
+              lastTriggeredAt:
+                format: date-time
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              prometheusRule:
+                type: string
+              state:
+                type: string
+              synced:
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

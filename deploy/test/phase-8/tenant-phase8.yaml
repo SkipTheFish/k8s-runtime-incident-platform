@@ -1,0 +1,12 @@
+apiVersion: observability.io/v1
+kind: ObserveTenant
+metadata:
+  name: tenant-t1
+  namespace: default
+spec:
+  tenantID: t1
+  displayName: Tenant One
+  owner: platform-team
+  environment: dev
+  retentionDays: 7
+  enabled: true

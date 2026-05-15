@@ -1,0 +1,43 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+
+metadata:
+  name: bad-image-alert
+  namespace: monitoring
+
+spec:
+  tenantID: t1
+
+  policyName: bad-image-alert
+
+  query: |
+    kube_pod_container_status_waiting_reason{
+      namespace="monitoring",
+      reason=~"ImagePullBackOff|ErrImagePull"
+    }
+
+  threshold: 0
+
+  operator: ">"
+
+  duration: 10s
+
+  severity: critical
+
+  enabled: true
+
+  notification: slack
+
+  runbookURL: https://example.com/runbook/imagepullbackoff
+
+  owner: platform-team
+
+  labels:
+    managed_by: observability-platform
+    policy_name: bad-image-alert
+    team: platform
+    env: dev
+
+  annotations:
+    summary: "Pod stuck in ImagePullBackOff"
+    description: "bad-image pod cannot pull image"

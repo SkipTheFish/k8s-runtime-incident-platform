@@ -1,0 +1,43 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+
+metadata:
+  name: node-notready-alert
+  namespace: monitoring
+
+spec:
+  tenantID: t1
+
+  policyName: node-notready-alert
+
+  query: |
+    kube_node_status_condition{
+      condition="Ready",
+      status="true"
+    } == 0
+
+  threshold: 0
+
+  operator: ">"
+
+  duration: 30s
+
+  severity: critical
+
+  enabled: true
+
+  notification: slack
+
+  runbookURL: https://example.com/runbook/node-notready
+
+  owner: platform-team
+
+  labels:
+    managed_by: observability-platform
+    policy_name: node-notready-alert
+    team: platform
+    env: dev
+
+  annotations:
+    summary: "Node entered NotReady state"
+    description: "Kubernetes node is unavailable"

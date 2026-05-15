@@ -1,0 +1,29 @@
+# frontend
+node_modules/
+dist/
+
+# build
+bin/
+build/
+
+# env
+.env
+
+# ide
+.idea/
+.vscode/
+
+# os
+.DS_Store
+
+# logs
+*.log
+
+# database
+*.db
+
+# coverage
+coverage/
+
+# temp
+tmp/

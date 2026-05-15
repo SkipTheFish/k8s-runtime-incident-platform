@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: crash-demo
+  namespace: monitoring
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: crash-demo
+
+  template:
+    metadata:
+      labels:
+        app: crash-demo
+
+    spec:
+      containers:
+      - name: crash
+        image: docker.io/grafana/grafana
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "exit 1"]

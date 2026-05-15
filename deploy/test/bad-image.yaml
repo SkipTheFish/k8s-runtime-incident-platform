@@ -1,0 +1,14 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+metadata:
+  name: timeline-test
+  namespace: monitoring
+spec:
+  tenantID: demo
+  policyName: timeline-test
+  query: vector(1)
+  threshold: 0
+  operator: ">"
+  severity: warning
+  enabled: true
+  notification: slack

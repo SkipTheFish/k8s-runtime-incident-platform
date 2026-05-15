@@ -1,0 +1,16 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+metadata:
+  name: timeline-test
+  namespace: monitoring
+spec:
+  source:
+    type: prometheus
+    prometheus:
+      query: vector(1)
+
+  condition:
+    operator: ">"
+    threshold: 0
+
+  severity: warning

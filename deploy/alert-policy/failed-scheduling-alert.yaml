@@ -1,0 +1,43 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+
+metadata:
+  name: failed-scheduling-alert
+  namespace: monitoring
+
+spec:
+  tenantID: t1
+
+  policyName: failed-scheduling-alert
+
+  query: |
+    kube_pod_status_phase{
+      namespace="monitoring",
+      phase="Pending"
+    }
+
+  threshold: 0
+
+  operator: ">"
+
+  duration: 30s
+
+  severity: warning
+
+  enabled: true
+
+  notification: slack
+
+  runbookURL: https://example.com/runbook/pending-pod
+
+  owner: platform-team
+
+  labels:
+    managed_by: observability-platform
+    policy_name: failed-scheduling-alert
+    team: platform
+    env: dev
+
+  annotations:
+    summary: "Pod stuck in Pending state"
+    description: "Pod may have scheduling failure or insufficient resources"

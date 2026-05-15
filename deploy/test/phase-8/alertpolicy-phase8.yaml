@@ -1,0 +1,28 @@
+apiVersion: observability.io/v1
+kind: AlertPolicy
+metadata:
+  name: always-firing
+  namespace: default
+
+spec:
+  tenantID: t1
+
+  policyName: AlwaysFiring
+
+  query: vector(1)
+
+  threshold: 0
+
+  operator: ">"
+
+  duration: 10s
+
+  severity: warning
+
+  enabled: true
+
+  notification: slack
+
+  runbookURL: https://example.com/runbook/test
+
+  owner: platform-team
