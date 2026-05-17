@@ -476,7 +476,7 @@ make run
 ## 前端
 
 ```bash
-cd frontend
+cd runtime-console
 npm install
 npm run dev
 ```
