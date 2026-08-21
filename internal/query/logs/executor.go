@@ -2,9 +2,8 @@ package logs
 
 import (
 	"context"
-	"time"
 	"observability-platform/internal/query"
-
+	"time"
 )
 
 type LokiExecutor struct {

@@ -41,10 +41,10 @@ func (m *Metrics) IncValidationFailed() {
 func (m *Metrics) Snapshot() map[string]uint64 {
 
 	return map[string]uint64{
-		"published":         atomic.LoadUint64(&m.published),
-		"dropped":           atomic.LoadUint64(&m.dropped),
-		"deduped":           atomic.LoadUint64(&m.deduped),
-		"rateLimited":       atomic.LoadUint64(&m.rateLimited),
-		"validationFailed":  atomic.LoadUint64(&m.validationFailed),
+		"published":        atomic.LoadUint64(&m.published),
+		"dropped":          atomic.LoadUint64(&m.dropped),
+		"deduped":          atomic.LoadUint64(&m.deduped),
+		"rateLimited":      atomic.LoadUint64(&m.rateLimited),
+		"validationFailed": atomic.LoadUint64(&m.validationFailed),
 	}
 }

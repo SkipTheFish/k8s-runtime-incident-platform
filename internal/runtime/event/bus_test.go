@@ -23,14 +23,17 @@ func validAlertEvent() RuntimeEvent {
 
 func validK8sWarningEvent() RuntimeEvent {
 	return RuntimeEvent{
-		Type:         TypeK8sWarning,
-		Source:       "kubernetes",
-		TenantID:     "t1",
-		Namespace:    "monitoring",
-		ResourceKind: "Pod",
-		ResourceName: "bad-image",
-		Message:      "Back-off pulling image",
-		OccurredAt:   time.Now(),
+		Type:      TypeK8sWarning,
+		Source:    "kubernetes",
+		TenantID:  "t1",
+		Namespace: "monitoring",
+		Resource: RuntimeResource{
+			Kind:      "Pod",
+			Name:      "bad-image",
+			Namespace: "monitoring",
+		},
+		Message:    "Back-off pulling image",
+		OccurredAt: time.Now(),
 	}
 }
 

@@ -2,6 +2,8 @@ package logs
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -14,15 +16,22 @@ func (c *noopCache) Get(ctx context.Context, q *query.Query) (*query.QueryResult
 	return nil, false
 }
 
-func (c *noopCache) Set(ctx context.Context, q *query.Query, result *query.QueryResult, ttl time.Duration) {}
+func (c *noopCache) Set(ctx context.Context, q *query.Query, result *query.QueryResult, ttl time.Duration) {
+}
 
 func TestLogsPoCReusePipeline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer server.Close()
+
 	pipeline := query.NewQueryPipeline(
 		&query.DefaultValidator{},
 		&query.NoopParser{},
 		&query.NoopIsolator{},
 		&noopCache{},
-		NewLokiExecutor(),
+		NewLokiExecutor(NewLokiClient(server.URL)),
 		&query.DefaultFormatter{},
 	)
 
@@ -37,7 +46,7 @@ func TestLogsPoCReusePipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if res.Source != "loki-poc" {
-		t.Fatalf("expected loki-poc, got %s", res.Source)
+	if res.Source != "loki" {
+		t.Fatalf("expected loki, got %s", res.Source)
 	}
 }

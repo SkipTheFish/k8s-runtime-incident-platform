@@ -2,9 +2,10 @@ module observability-platform
 
 go 1.26.0
 
+toolchain go1.26.9
+
 require (
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-chi/chi/v5 v5.2.5
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.91.0
 	github.com/redis/go-redis/v9 v9.19.0
