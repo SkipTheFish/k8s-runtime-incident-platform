@@ -1,10 +1,13 @@
 # frontend
 node_modules/
 dist/
+runtime-console/dist/
 
 # build
 bin/
 build/
+/server
+/server.exe
 
 # env
 .env
@@ -24,6 +27,14 @@ build/
 
 # coverage
 coverage/
+coverage.out
+
+# local Kubernetes and Helm output
+.kind/
+kind-output/
+helm-output/
+*.tgz
+charts/*.tgz
 
 # temp
 tmp/
