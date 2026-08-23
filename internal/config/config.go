@@ -1,42 +1,159 @@
 package config
 
 import (
-	"log"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
 
 type Config struct {
 	App struct {
-		Name string
-		Port string
+		Name            string
+		Port            int
+		ShutdownTimeout time.Duration
 	}
-
 	Postgres struct {
-		DSN string
+		DSN     string
+		Timeout time.Duration
 	}
-
 	Redis struct {
 		Addr string
 	}
+	PrometheusURL     string
+	LokiURL           string
+	TempoURL          string
+	ClusterID         string
+	KubernetesEnabled bool
+	WebhookWorkers    int
 }
 
 var Cfg *Config
 
-func Init() {
-	viper.SetConfigFile(".env")
-	viper.SetConfigType("env")
-
-	err := viper.ReadInConfig()
+func Init() error {
+	cfg, err := Load()
 	if err != nil {
-		log.Fatal("read config failed:", err)
+		return err
+	}
+	Cfg = cfg
+	return nil
+}
+
+func Load() (*Config, error) {
+	v := viper.New()
+	v.SetConfigFile(".env")
+	v.SetConfigType("env")
+	v.AutomaticEnv()
+	if err := v.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read configuration file: %w", err)
+		}
+	}
+	return load(v.GetString)
+}
+
+func load(get func(string) string) (*Config, error) {
+	cfg := &Config{}
+	cfg.App.Name = valueOrDefault(get("APP_NAME"), "runtime-incident-platform")
+
+	var err error
+	if cfg.App.Port, err = parseInt("APP_PORT", get("APP_PORT"), 8080, 1, 65535); err != nil {
+		return nil, err
+	}
+	if cfg.App.ShutdownTimeout, err = parseDuration("SHUTDOWN_TIMEOUT", get("SHUTDOWN_TIMEOUT"), 10*time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.Postgres.Timeout, err = parseDuration("POSTGRES_TIMEOUT", get("POSTGRES_TIMEOUT"), 5*time.Second); err != nil {
+		return nil, err
 	}
 
-	Cfg = &Config{}
+	cfg.Postgres.DSN = strings.TrimSpace(get("POSTGRES_DSN"))
+	if cfg.Postgres.DSN == "" {
+		return nil, fieldError("POSTGRES_DSN", "is required")
+	}
+	cfg.Redis.Addr = valueOrDefault(get("REDIS_ADDR"), "127.0.0.1:6379")
+	if !strings.Contains(cfg.Redis.Addr, ":") {
+		return nil, fieldError("REDIS_ADDR", "must be in host:port form")
+	}
 
-	Cfg.App.Name = viper.GetString("APP_NAME")
-	Cfg.App.Port = viper.GetString("APP_PORT")
+	if cfg.PrometheusURL, err = parseHTTPURL("PROMETHEUS_URL", get("PROMETHEUS_URL"), "http://127.0.0.1:9090"); err != nil {
+		return nil, err
+	}
+	if cfg.LokiURL, err = parseHTTPURL("LOKI_URL", get("LOKI_URL"), "http://127.0.0.1:3100"); err != nil {
+		return nil, err
+	}
+	if cfg.TempoURL, err = parseHTTPURL("TEMPO_URL", get("TEMPO_URL"), "http://127.0.0.1:3200"); err != nil {
+		return nil, err
+	}
 
-	Cfg.Postgres.DSN = viper.GetString("POSTGRES_DSN")
-	Cfg.Redis.Addr = viper.GetString("REDIS_ADDR")
+	cfg.ClusterID = strings.TrimSpace(get("CLUSTER_ID"))
+	if cfg.ClusterID == "" {
+		return nil, fieldError("CLUSTER_ID", "is required")
+	}
+	if cfg.KubernetesEnabled, err = parseBool("KUBERNETES_ENABLED", get("KUBERNETES_ENABLED"), true); err != nil {
+		return nil, err
+	}
+	if cfg.WebhookWorkers, err = parseInt("WEBHOOK_WORKERS", get("WEBHOOK_WORKERS"), 2, 1, 64); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func valueOrDefault(value, fallback string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func parseDuration(field, value string, fallback time.Duration) (time.Duration, error) {
+	if strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return 0, fieldError(field, "must be a positive duration")
+	}
+	return parsed, nil
+}
+
+func parseInt(field, value string, fallback, min, max int) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < min || parsed > max {
+		return 0, fieldError(field, fmt.Sprintf("must be an integer from %d to %d", min, max))
+	}
+	return parsed, nil
+}
+
+func parseBool(field, value string, fallback bool) (bool, error) {
+	if strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fieldError(field, "must be a boolean")
+	}
+	return parsed, nil
+}
+
+func parseHTTPURL(field, value, fallback string) (string, error) {
+	value = valueOrDefault(value, fallback)
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", fieldError(field, "must be an absolute HTTP(S) URL")
+	}
+	return parsed.String(), nil
+}
+
+func fieldError(field, reason string) error {
+	return fmt.Errorf("invalid configuration field %s: %s", field, reason)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	obsv1 "observability-platform/api/v1"
@@ -24,12 +25,11 @@ import (
 	"observability-platform/internal/runtime/correlation"
 	runtimeevent "observability-platform/internal/runtime/event"
 	runtimegraph "observability-platform/internal/runtime/graph"
-	runtimeinformer "observability-platform/internal/runtime/informer"
 	"observability-platform/internal/runtime/incidentfsm"
+	runtimeinformer "observability-platform/internal/runtime/informer"
 	runtimeprom "observability-platform/internal/runtime/prometheus"
 	runtimesync "observability-platform/internal/runtime/sync"
 	runtimeline "observability-platform/internal/runtime/timeline"
-
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 
@@ -70,7 +70,9 @@ func main() {
 	// 1️⃣ 基础初始化
 	// ===============================
 	log.Println("[1] 开始初始化配置 config.Init()...")
-	config.Init()
+	if err := config.Init(); err != nil {
+		log.Fatalf("[1] 配置加载失败: %v", err)
+	}
 	log.Println("[1] 配置初始化运行成功")
 
 	log.Println("[1] 开始连接数据库 repository.InitDB()...")
@@ -298,7 +300,7 @@ func main() {
 	// timelineAPI := runtimeline.NewAPI(
 	// 	runtimeTimelineRepo,
 	// )
-	
+
 	// log.Println("[7] Runtime Timeline API 初始化运行成功")
 
 	log.Println("[7] 开始初始化 Incident FSM Repository...")
@@ -401,7 +403,6 @@ func main() {
 	// timelineAPI.Register(r)
 	// log.Println("[8] Runtime Timeline API 注册运行成功")
 
-
 	log.Println("[8] 开始注册 /health 路由...")
 	r.GET("/health", handler.Health)
 	log.Println("[8] /health 路由注册运行成功")
@@ -466,8 +467,8 @@ func main() {
 	// ===============================
 	// 9️⃣ 启动 HTTP
 	// ===============================
-	addr := ":" + config.Cfg.App.Port
-	log.Printf("[9] 准备启动 HTTP Server，端口: %s", config.Cfg.App.Port)
+	addr := fmt.Sprintf(":%d", config.Cfg.App.Port)
+	log.Printf("[9] 准备启动 HTTP Server，端口: %d", config.Cfg.App.Port)
 
 	log.Println("========== BOOT SUCCESS: 即将进入 r.Run() 阻塞监听 ==========")
 
