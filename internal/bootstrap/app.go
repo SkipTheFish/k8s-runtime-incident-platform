@@ -55,15 +55,17 @@ func New(cfg *config.Config) (*App, error) {
 		repository.DB.Close()
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
+	readiness := handler.NewReadiness(repository.DB.Ping, cfg.KubernetesEnabled, cfg.Postgres.Timeout)
+	readiness.SetMigrationsReady(true)
 
-	router, engine := buildRouter(cfg)
+	router, engine := buildRouter(cfg, readiness)
 	app := &App{cfg: cfg, server: &http.Server{Addr: fmt.Sprintf(":%d", cfg.App.Port), Handler: router}}
 	app.components = append(app.components, componentFunc{name: "alert engine", run: func(ctx context.Context) error {
 		engine.Start(ctx)
 		return nil
 	}})
 	if cfg.KubernetesEnabled {
-		components, err := kubernetesComponents(cfg)
+		components, err := kubernetesComponents(cfg, readiness)
 		if err != nil {
 			repository.DB.Close()
 			return nil, err
@@ -98,7 +100,7 @@ func (a *App) runHTTP(ctx context.Context) error {
 	}
 }
 
-func buildRouter(cfg *config.Config) (*gin.Engine, *alert.Engine) {
+func buildRouter(cfg *config.Config, readiness *handler.Readiness) (*gin.Engine, *alert.Engine) {
 	redisCache := cache.NewRedis(cfg.Redis.Addr)
 	queryCache := query.NewRedisQueryCache(redisCache)
 	promClient := prometheus.NewClient(cfg.PrometheusURL)
@@ -120,6 +122,8 @@ func buildRouter(cfg *config.Config) (*gin.Engine, *alert.Engine) {
 
 	r := gin.Default()
 	r.GET("/health", handler.Health)
+	r.GET("/livez", readiness.Live)
+	r.GET("/readyz", readiness.Ready)
 	api := r.Group("/api/v1", middleware.TenantMiddleware())
 	logs := api.Group("/logs")
 	logs.GET("/query", logsHandler.Query)
@@ -142,7 +146,7 @@ func buildRouter(cfg *config.Config) (*gin.Engine, *alert.Engine) {
 	return r, alert.NewEngine(metricsService, alertRepo, incidentService)
 }
 
-func kubernetesComponents(cfg *config.Config) ([]Component, error) {
+func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]Component, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(obsv1.AddToScheme(scheme))
@@ -168,6 +172,14 @@ func kubernetesComponents(cfg *config.Config) ([]Component, error) {
 	syncer := runtimesync.NewAlertSyncer(mgr.GetClient(), runtimeprom.NewClient(cfg.PrometheusURL), bus)
 	return []Component{
 		componentFunc{name: "controller manager", run: mgr.Start},
+		componentFunc{name: "cache sync", run: func(ctx context.Context) error {
+			if !mgr.GetCache().WaitForCacheSync(ctx) {
+				return fmt.Errorf("cache sync failed")
+			}
+			readiness.SetCacheSynced(true)
+			<-ctx.Done()
+			return ctx.Err()
+		}},
 		componentFunc{name: "informer", run: informer.Start},
 		componentFunc{name: "worker", run: func(ctx context.Context) error { correlationEngine.Start(ctx); return nil }},
 		componentFunc{name: "dispatcher", run: func(ctx context.Context) error { syncer.Start(ctx); return nil }},
