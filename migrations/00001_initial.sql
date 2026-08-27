@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE IF NOT EXISTS metrics_cache (
     id SERIAL PRIMARY KEY,
     tenant_id TEXT,
@@ -21,7 +22,7 @@ CREATE TABLE IF NOT EXISTS alert_policies (
     query TEXT,
     threshold DOUBLE PRECISION,
     operator TEXT,
-    duration string,
+    duration TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -55,8 +56,14 @@ ALTER TABLE alert_policies
 ADD COLUMN IF NOT EXISTS k8s_namespace TEXT,
 ADD COLUMN IF NOT EXISTS k8s_name TEXT;
 
-
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_policies_k8s_ref
 ON alert_policies(k8s_namespace, k8s_name)
 WHERE k8s_namespace IS NOT NULL AND k8s_name IS NOT NULL;
+
+-- +goose Down
+DROP TABLE IF EXISTS timeline_events;
+DROP TABLE IF EXISTS incidents;
+DROP TABLE IF EXISTS alert_instances;
+DROP TABLE IF EXISTS alert_policies;
+DROP TABLE IF EXISTS alerts;
+DROP TABLE IF EXISTS metrics_cache;

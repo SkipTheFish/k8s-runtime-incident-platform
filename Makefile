@@ -9,3 +9,9 @@ run:
 
 test:
 	go test ./... -cover
+
+migrate-up:
+	go run ./cmd/migrate -command up
+
+migrate-status:
+	go run ./cmd/migrate -command status

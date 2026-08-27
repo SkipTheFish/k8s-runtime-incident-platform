@@ -10,6 +10,7 @@ import (
 	"observability-platform/internal/alert"
 	"observability-platform/internal/cache"
 	"observability-platform/internal/config"
+	"observability-platform/internal/database"
 	"observability-platform/internal/datasource/prometheus"
 	"observability-platform/internal/handler"
 	"observability-platform/internal/incident"
@@ -46,14 +47,21 @@ type App struct {
 }
 
 func New(cfg *config.Config) (*App, error) {
-	if err := repository.InitDB(cfg.Postgres.DSN); err != nil {
-		return nil, fmt.Errorf("initialize database: %w", err)
+	migrationDB, err := database.Open(cfg.Postgres.DSN)
+	if err != nil {
+		return nil, err
 	}
 	migrationCtx, cancelMigration := context.WithTimeout(context.Background(), cfg.Postgres.Timeout)
 	defer cancelMigration()
-	if err := runMigrations(migrationCtx); err != nil {
-		repository.DB.Close()
+	if err := database.Up(migrationCtx, migrationDB); err != nil {
+		migrationDB.Close()
 		return nil, fmt.Errorf("run migrations: %w", err)
+	}
+	if err := migrationDB.Close(); err != nil {
+		return nil, fmt.Errorf("close migration database: %w", err)
+	}
+	if err := repository.InitDB(cfg.Postgres.DSN); err != nil {
+		return nil, fmt.Errorf("initialize database: %w", err)
 	}
 	readiness := handler.NewReadiness(repository.DB.Ping, cfg.KubernetesEnabled, cfg.Postgres.Timeout)
 	readiness.SetMigrationsReady(true)
