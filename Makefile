@@ -15,3 +15,6 @@ migrate-up:
 
 migrate-status:
 	go run ./cmd/migrate -command status
+
+test-migrations:
+	pwsh -NoProfile -File hack/test-migrations.ps1
