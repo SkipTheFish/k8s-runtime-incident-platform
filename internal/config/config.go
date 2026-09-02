@@ -31,6 +31,10 @@ type Config struct {
 	ClusterID         string
 	KubernetesEnabled bool
 	WebhookWorkers    int
+	SignalWorkers     int
+	SignalMaxRetries  int
+	SignalRetryBase   time.Duration
+	SignalRetryMax    time.Duration
 }
 
 var Cfg *Config
@@ -100,6 +104,18 @@ func load(get func(string) string) (*Config, error) {
 		return nil, err
 	}
 	if cfg.WebhookWorkers, err = parseInt("WEBHOOK_WORKERS", get("WEBHOOK_WORKERS"), 2, 1, 64); err != nil {
+		return nil, err
+	}
+	if cfg.SignalWorkers, err = parseInt("SIGNAL_WORKERS", get("SIGNAL_WORKERS"), 2, 1, 64); err != nil {
+		return nil, err
+	}
+	if cfg.SignalMaxRetries, err = parseInt("SIGNAL_MAX_RETRIES", get("SIGNAL_MAX_RETRIES"), 5, 0, 100); err != nil {
+		return nil, err
+	}
+	if cfg.SignalRetryBase, err = parseDuration("SIGNAL_RETRY_BASE", get("SIGNAL_RETRY_BASE"), 100*time.Millisecond); err != nil {
+		return nil, err
+	}
+	if cfg.SignalRetryMax, err = parseDuration("SIGNAL_RETRY_MAX", get("SIGNAL_RETRY_MAX"), 30*time.Second); err != nil {
 		return nil, err
 	}
 	return cfg, nil

@@ -52,3 +52,7 @@ The supported variables are:
 | `CLUSTER_ID` | Yes | None |
 | `KUBERNETES_ENABLED` | No | `true` |
 | `WEBHOOK_WORKERS` | No | `2` |
+| `SIGNAL_WORKERS` | No | `2` |
+| `SIGNAL_MAX_RETRIES` | No | `5` |
+| `SIGNAL_RETRY_BASE` | No | `100ms` |
+| `SIGNAL_RETRY_MAX` | No | `30s` |
