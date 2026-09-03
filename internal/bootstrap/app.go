@@ -16,6 +16,7 @@ import (
 	"observability-platform/internal/incident"
 	"observability-platform/internal/middleware"
 	"observability-platform/internal/operator"
+	"observability-platform/internal/pipeline"
 	"observability-platform/internal/query"
 	logsquery "observability-platform/internal/query/logs"
 	metricsquery "observability-platform/internal/query/metrics"
@@ -29,6 +30,7 @@ import (
 	runtimeprom "observability-platform/internal/runtime/prometheus"
 	runtimesync "observability-platform/internal/runtime/sync"
 	runtimeline "observability-platform/internal/runtime/timeline"
+	"observability-platform/internal/signal"
 	"observability-platform/internal/timeline"
 
 	"github.com/gin-gonic/gin"
@@ -176,19 +178,16 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 	bus := runtimeevent.NewBus()
 	graphRepo := runtimegraph.NewRepository()
 	correlationEngine := correlation.NewEngine(bus, incidentfsm.NewService(incidentfsm.NewRepository(), runtimeline.NewRepository()), graphRepo)
-	informer := runtimeinformer.NewK8sEventInformer(restConfig, bus, graphRepo)
+	signalRepo := pipeline.NewRepository(repository.DB)
+	signalQueue := pipeline.NewQueue(pipeline.Config{Workers: cfg.SignalWorkers, MaxRetries: cfg.SignalMaxRetries, BaseDelay: cfg.SignalRetryBase, MaxDelay: cfg.SignalRetryMax}, signalRepo.Persist, func(ctx context.Context, item signal.Signal, cause error, attempts int) {
+		_ = signalRepo.RecordDeadLetter(ctx, item, "processing", cause, attempts)
+	})
+	informer := runtimeinformer.NewK8sEventInformer(restConfig, cfg.ClusterID, signalQueue.Enqueue, readiness.SetCacheSynced)
 	syncer := runtimesync.NewAlertSyncer(mgr.GetClient(), runtimeprom.NewClient(cfg.PrometheusURL), bus)
 	return []Component{
 		componentFunc{name: "controller manager", run: mgr.Start},
-		componentFunc{name: "cache sync", run: func(ctx context.Context) error {
-			if !mgr.GetCache().WaitForCacheSync(ctx) {
-				return fmt.Errorf("cache sync failed")
-			}
-			readiness.SetCacheSynced(true)
-			<-ctx.Done()
-			return ctx.Err()
-		}},
 		componentFunc{name: "informer", run: informer.Start},
+		componentFunc{name: "signal worker", run: signalQueue.Run},
 		componentFunc{name: "worker", run: func(ctx context.Context) error { correlationEngine.Start(ctx); return nil }},
 		componentFunc{name: "dispatcher", run: func(ctx context.Context) error { syncer.Start(ctx); return nil }},
 	}, nil

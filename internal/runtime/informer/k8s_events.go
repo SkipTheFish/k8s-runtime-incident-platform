@@ -2,14 +2,12 @@ package informer
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"time"
 
-	runtimeevent "observability-platform/internal/runtime/event"
-	runtimegraph "observability-platform/internal/runtime/graph"
+	"observability-platform/internal/signal"
 
 	corev1 "k8s.io/api/core/v1"
-	// "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -17,91 +15,68 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+type EnqueueFunc func(signal.Signal) error
+
 type K8sEventInformer struct {
 	config    *rest.Config
-	bus       *runtimeevent.Bus
-	graphRepo *runtimegraph.Repository
+	clusterID string
+	enqueue   EnqueueFunc
+	ready     func(bool)
+	resync    time.Duration
 }
 
-func NewK8sEventInformer(
-	config *rest.Config,
-	bus *runtimeevent.Bus,
-	graphRepo *runtimegraph.Repository,
-) *K8sEventInformer {
-	return &K8sEventInformer{
-		config:    config,
-		bus:       bus,
-		graphRepo: graphRepo,
-	}
+func NewK8sEventInformer(config *rest.Config, clusterID string, enqueue EnqueueFunc, ready func(bool)) *K8sEventInformer {
+	return &K8sEventInformer{config: config, clusterID: clusterID, enqueue: enqueue, ready: ready, resync: 30 * time.Second}
 }
 
 func (i *K8sEventInformer) Start(ctx context.Context) error {
 	clientset, err := kubernetes.NewForConfig(i.config)
 	if err != nil {
-		return err
+		return fmt.Errorf("create Kubernetes client: %w", err)
 	}
-
-	factory := informers.NewSharedInformerFactoryWithOptions(
-		clientset,
-		30*time.Second,
-		informers.WithNamespace(metav1.NamespaceAll),
-	)
-
+	factory := informers.NewSharedInformerFactoryWithOptions(clientset, i.resync, informers.WithNamespace(metav1.NamespaceAll))
 	inf := factory.Core().V1().Events().Informer()
-
-	_, err = inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			i.handle(ctx, obj)
-		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			i.handle(ctx, newObj)
-		},
-	})
-	if err != nil {
-		return err
+	if _, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{AddFunc: i.handle, UpdateFunc: func(_, current any) { i.handle(current) }, DeleteFunc: i.handle}); err != nil {
+		return fmt.Errorf("register event handler: %w", err)
 	}
-
-	log.Println("K8S INFORMER: event informer started")
 	factory.Start(ctx.Done())
-	factory.WaitForCacheSync(ctx.Done())
-
+	status := factory.WaitForCacheSync(ctx.Done())
+	synced := false
+	for _, ok := range status {
+		synced = synced || ok
+	}
+	if !synced {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("Kubernetes Event cache sync failed")
+	}
+	i.ready(true)
+	defer i.ready(false)
 	<-ctx.Done()
-
-	log.Println("K8S INFORMER: envent informer stopped")
-
-	return nil
+	return ctx.Err()
 }
 
-func (i *K8sEventInformer) handle(ctx context.Context, obj interface{}) {
-	ev, ok := obj.(*corev1.Event)
+func (i *K8sEventInformer) handle(obj any) {
+	event, ok := eventFromObject(obj)
 	if !ok {
 		return
 	}
-
-	if ev.Type != corev1.EventTypeWarning {
+	s, err := signal.FromKubernetesEvent(i.clusterID, event, time.Now())
+	if err != nil {
 		return
 	}
+	_ = i.enqueue(s)
+}
 
-	if !ev.LastTimestamp.IsZero() && time.Since(ev.LastTimestamp.Time) > 2*time.Minute {
-		return
+func eventFromObject(obj any) (*corev1.Event, bool) {
+	if event, ok := obj.(*corev1.Event); ok {
+		return event, true
 	}
-
-	kind := ev.InvolvedObject.Kind
-	name := ev.InvolvedObject.Name
-	namespace := ev.Namespace
-
-	_ = i.graphRepo.UpsertNode(ctx, kind, namespace, name, "")
-
-	i.bus.Publish(ctx, runtimeevent.RuntimeEvent{
-		Type:         runtimeevent.TypeK8sWarning,
-		Source:       "kubernetes",
-		Namespace:    namespace,
-		Resource: runtimeevent.RuntimeResource{
-			Kind: kind,
-			Name: name,
-			Namespace: namespace,
-		},
-		Message:      ev.Message,
-		OccurredAt:   time.Now(),
-	})
+	tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+	if !ok {
+		return nil, false
+	}
+	event, ok := tombstone.Obj.(*corev1.Event)
+	return event, ok
 }
