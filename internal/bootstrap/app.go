@@ -35,6 +35,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	prommetrics "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -134,6 +136,7 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness) (*gin.Engine,
 	r.GET("/health", handler.Health)
 	r.GET("/livez", readiness.Live)
 	r.GET("/readyz", readiness.Ready)
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	api := r.Group("/api/v1", middleware.TenantMiddleware())
 	logs := api.Group("/logs")
 	logs.GET("/query", logsHandler.Query)
@@ -182,6 +185,7 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 	signalQueue := pipeline.NewQueue(pipeline.Config{Workers: cfg.SignalWorkers, MaxRetries: cfg.SignalMaxRetries, BaseDelay: cfg.SignalRetryBase, MaxDelay: cfg.SignalRetryMax}, signalRepo.Persist, func(ctx context.Context, item signal.Signal, cause error, attempts int) {
 		_ = signalRepo.RecordDeadLetter(ctx, item, "processing", cause, attempts)
 	})
+	signalQueue.SetMetrics(pipeline.NewMetrics(prommetrics.DefaultRegisterer, signalQueue.Depth))
 	informer := runtimeinformer.NewK8sEventInformer(restConfig, cfg.ClusterID, signalQueue.Enqueue, readiness.SetCacheSynced)
 	syncer := runtimesync.NewAlertSyncer(mgr.GetClient(), runtimeprom.NewClient(cfg.PrometheusURL), bus)
 	return []Component{

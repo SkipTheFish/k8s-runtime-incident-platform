@@ -32,6 +32,7 @@ type Queue struct {
 	workers    int
 	maxRetries int
 	closing    atomic.Bool
+	metrics    *Metrics
 }
 
 func NewQueue(cfg Config, handler Handler, deadLetter DeadLetterHandler) *Queue {
@@ -39,12 +40,17 @@ func NewQueue(cfg Config, handler Handler, deadLetter DeadLetterHandler) *Queue 
 	return &Queue{queue: workqueue.NewTypedRateLimitingQueue(limiter), handler: handler, deadLetter: deadLetter, workers: cfg.Workers, maxRetries: cfg.MaxRetries}
 }
 
+func (q *Queue) SetMetrics(metrics *Metrics) { q.metrics = metrics }
+
 func (q *Queue) Enqueue(s signal.Signal) error {
 	if q.closing.Load() {
 		return ErrShuttingDown
 	}
 	q.items.Store(s.ID, s)
 	q.queue.Add(s.ID)
+	if q.metrics != nil {
+		q.metrics.received.With(labels(string(s.Source), string(s.Type))).Inc()
+	}
 	return nil
 }
 
@@ -81,13 +87,27 @@ func (q *Queue) worker(ctx context.Context) {
 				q.items.Delete(key)
 				return
 			}
+			if errors.Is(err, ErrDuplicate) {
+				q.queue.Forget(key)
+				q.items.Delete(key)
+				if q.metrics != nil {
+					q.metrics.deduplicated.With(labels(string(s.Source), string(s.Type))).Inc()
+				}
+				return
+			}
 			attempts := q.queue.NumRequeues(key) + 1
 			if attempts <= q.maxRetries {
+				if q.metrics != nil {
+					q.metrics.retries.With(labels(string(s.Source), string(s.Type))).Inc()
+				}
 				q.queue.AddRateLimited(key)
 				return
 			}
 			q.queue.Forget(key)
 			q.items.Delete(key)
+			if q.metrics != nil {
+				q.metrics.failed.With(labels(string(s.Source), string(s.Type))).Inc()
+			}
 			if q.deadLetter != nil {
 				q.deadLetter(ctx, s, err, attempts)
 			}
