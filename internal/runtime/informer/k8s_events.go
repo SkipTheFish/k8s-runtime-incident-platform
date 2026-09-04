@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"observability-platform/internal/resourcegraph"
 	"observability-platform/internal/signal"
 
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -16,17 +19,24 @@ import (
 )
 
 type EnqueueFunc func(signal.Signal) error
+type ResourceEnqueueFunc func(resourcegraph.ResourceTask) error
 
 type K8sEventInformer struct {
-	config    *rest.Config
-	clusterID string
-	enqueue   EnqueueFunc
-	ready     func(bool)
-	resync    time.Duration
+	config          *rest.Config
+	clusterID       string
+	enqueue         EnqueueFunc
+	resourceEnqueue ResourceEnqueueFunc
+	ready           func(bool)
+	resync          time.Duration
 }
 
 func NewK8sEventInformer(config *rest.Config, clusterID string, enqueue EnqueueFunc, ready func(bool)) *K8sEventInformer {
 	return &K8sEventInformer{config: config, clusterID: clusterID, enqueue: enqueue, ready: ready, resync: 30 * time.Second}
+}
+
+func (i *K8sEventInformer) WithResourceEnqueue(enqueue ResourceEnqueueFunc) *K8sEventInformer {
+	i.resourceEnqueue = enqueue
+	return i
 }
 
 func (i *K8sEventInformer) Start(ctx context.Context) error {
@@ -39,11 +49,27 @@ func (i *K8sEventInformer) Start(ctx context.Context) error {
 	if _, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{AddFunc: i.handle, UpdateFunc: func(_, current any) { i.handle(current) }, DeleteFunc: i.handle}); err != nil {
 		return fmt.Errorf("register event handler: %w", err)
 	}
+	if i.resourceEnqueue != nil {
+		registrations := []resourceRegistration{
+			{factory.Core().V1().Pods().Informer(), "v1", "Pod"},
+			{factory.Core().V1().Nodes().Informer(), "v1", "Node"},
+			{factory.Apps().V1().Deployments().Informer(), appsv1.SchemeGroupVersion.String(), "Deployment"},
+			{factory.Apps().V1().ReplicaSets().Informer(), appsv1.SchemeGroupVersion.String(), "ReplicaSet"},
+			{factory.Apps().V1().StatefulSets().Informer(), appsv1.SchemeGroupVersion.String(), "StatefulSet"},
+			{factory.Apps().V1().DaemonSets().Informer(), appsv1.SchemeGroupVersion.String(), "DaemonSet"},
+			{factory.Batch().V1().Jobs().Informer(), batchv1.SchemeGroupVersion.String(), "Job"},
+		}
+		for _, registration := range registrations {
+			if err := i.registerResourceHandler(registration); err != nil {
+				return err
+			}
+		}
+	}
 	factory.Start(ctx.Done())
 	status := factory.WaitForCacheSync(ctx.Done())
-	synced := false
+	synced := len(status) > 0
 	for _, ok := range status {
-		synced = synced || ok
+		synced = synced && ok
 	}
 	if !synced {
 		if ctx.Err() != nil {

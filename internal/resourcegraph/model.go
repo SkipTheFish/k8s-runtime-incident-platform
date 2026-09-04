@@ -69,3 +69,19 @@ type RootResolutionResult struct {
 	Root ResourceNode   `json:"root"`
 	Path []ResourceEdge `json:"path,omitempty"`
 }
+
+type TaskAction string
+
+const (
+	TaskUpsert TaskAction = "upsert"
+	TaskDelete TaskAction = "delete"
+)
+
+// ResourceTask is the bounded payload passed from informer callbacks to graph
+// workers. It contains metadata only and never retains a full Kubernetes object.
+type ResourceTask struct {
+	Action    TaskAction   `json:"action"`
+	Node      ResourceNode `json:"node"`
+	OwnerUIDs []string     `json:"ownerUids,omitempty"`
+	NodeName  string       `json:"nodeName,omitempty"`
+}
