@@ -22,6 +22,7 @@ import (
 	metricsquery "observability-platform/internal/query/metrics"
 	tracesquery "observability-platform/internal/query/traces"
 	"observability-platform/internal/repository"
+	"observability-platform/internal/resourcegraph"
 	"observability-platform/internal/runtime/correlation"
 	runtimeevent "observability-platform/internal/runtime/event"
 	runtimegraph "observability-platform/internal/runtime/graph"
@@ -179,19 +180,22 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 		return nil, fmt.Errorf("register AlertPolicy webhook: %w", err)
 	}
 	bus := runtimeevent.NewBus()
-	graphRepo := runtimegraph.NewRepository()
-	correlationEngine := correlation.NewEngine(bus, incidentfsm.NewService(incidentfsm.NewRepository(), runtimeline.NewRepository()), graphRepo)
+	correlationGraphRepo := runtimegraph.NewRepository()
+	correlationEngine := correlation.NewEngine(bus, incidentfsm.NewService(incidentfsm.NewRepository(), runtimeline.NewRepository()), correlationGraphRepo)
 	signalRepo := pipeline.NewRepository(repository.DB)
 	signalQueue := pipeline.NewQueue(pipeline.Config{Workers: cfg.SignalWorkers, MaxRetries: cfg.SignalMaxRetries, BaseDelay: cfg.SignalRetryBase, MaxDelay: cfg.SignalRetryMax}, signalRepo.Persist, func(ctx context.Context, item signal.Signal, cause error, attempts int) {
 		_ = signalRepo.RecordDeadLetter(ctx, item, "processing", cause, attempts)
 	})
 	signalQueue.SetMetrics(pipeline.NewMetrics(prommetrics.DefaultRegisterer, signalQueue.Depth))
-	informer := runtimeinformer.NewK8sEventInformer(restConfig, cfg.ClusterID, signalQueue.Enqueue, readiness.SetCacheSynced)
+	resourceGraphRepo := resourcegraph.NewRepository(repository.DB)
+	graphProcessor := resourcegraph.NewProcessor(cfg.SignalWorkers, 1024, resourceGraphRepo.Apply)
+	informer := runtimeinformer.NewK8sEventInformer(restConfig, cfg.ClusterID, signalQueue.Enqueue, readiness.SetCacheSynced).WithResourceEnqueue(graphProcessor.Enqueue)
 	syncer := runtimesync.NewAlertSyncer(mgr.GetClient(), runtimeprom.NewClient(cfg.PrometheusURL), bus)
 	return []Component{
 		componentFunc{name: "controller manager", run: mgr.Start},
 		componentFunc{name: "informer", run: informer.Start},
 		componentFunc{name: "signal worker", run: signalQueue.Run},
+		componentFunc{name: "resource graph worker", run: graphProcessor.Run},
 		componentFunc{name: "worker", run: func(ctx context.Context) error { correlationEngine.Start(ctx); return nil }},
 		componentFunc{name: "dispatcher", run: func(ctx context.Context) error { syncer.Start(ctx); return nil }},
 	}, nil
