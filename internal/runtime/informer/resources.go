@@ -17,7 +17,34 @@ type resourceRegistration struct {
 	kind       string
 }
 
+const (
+	IndexResourceUID  = "resourceGraphUID"
+	IndexResourceName = "resourceGraphName"
+)
+
+func ResourceIndexers() cache.Indexers {
+	return cache.Indexers{
+		IndexResourceUID: func(obj any) ([]string, error) {
+			accessor, err := meta.Accessor(obj)
+			if err != nil || accessor.GetUID() == "" {
+				return nil, nil
+			}
+			return []string{string(accessor.GetUID())}, nil
+		},
+		IndexResourceName: func(obj any) ([]string, error) {
+			accessor, err := meta.Accessor(obj)
+			if err != nil {
+				return nil, nil
+			}
+			return []string{accessor.GetNamespace() + "\x00" + accessor.GetName()}, nil
+		},
+	}
+}
+
 func (i *K8sEventInformer) registerResourceHandler(registration resourceRegistration) error {
+	if err := registration.informer.AddIndexers(ResourceIndexers()); err != nil {
+		return fmt.Errorf("register %s resource indexes: %w", registration.kind, err)
+	}
 	handle := func(action resourcegraph.TaskAction, obj any) {
 		task, ok := resourceTaskFromObject(i.clusterID, registration.apiVersion, registration.kind, action, obj, time.Now())
 		if ok {
