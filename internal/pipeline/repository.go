@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"observability-platform/internal/resourcegraph"
 	"observability-platform/internal/signal"
 
 	"github.com/jackc/pgx/v5"
@@ -58,7 +59,20 @@ func (r *Repository) RecordDeadLetter(ctx context.Context, s signal.Signal, cate
 	if len(summary) > 1024 {
 		summary = summary[:1024]
 	}
-	_, err := r.db.Exec(ctx, `INSERT INTO dead_letter_events(signal_id,source,source_event_key,payload,error_category,last_error,attempts) VALUES(NULL,$1,$2,$3,$4,$5,$6)`, s.Source, s.SourceEventKey, payload, category, summary, attempts)
+	_, err := r.db.Exec(ctx, `INSERT INTO dead_letter_events(signal_id,source,source_event_key,payload,error_category,last_error,attempts) VALUES($1,$2,$3,$4,$5,$6,$7)`, s.ID, s.Source, s.SourceEventKey, payload, category, summary, attempts)
+	return err
+}
+
+func (r *Repository) MarkMatched(ctx context.Context, signalID string, root resourcegraph.ResourceKey) error {
+	_, err := r.db.Exec(ctx, `UPDATE signals SET resolution_status='matched',root_resource_uid=$2,root_resource_kind=$3,root_resource_namespace=$4,root_resource_name=$5,resolution_error=NULL WHERE id=$1`, signalID, root.UID, root.Kind, root.Namespace, root.Name)
+	return err
+}
+
+func (r *Repository) MarkUnmatched(ctx context.Context, signalID, reason string) error {
+	if len(reason) > 1024 {
+		reason = reason[:1024]
+	}
+	_, err := r.db.Exec(ctx, `UPDATE signals SET resolution_status='unmatched',resolution_error=$2 WHERE id=$1`, signalID, reason)
 	return err
 }
 

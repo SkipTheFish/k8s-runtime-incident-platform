@@ -183,13 +183,15 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 	correlationGraphRepo := runtimegraph.NewRepository()
 	correlationEngine := correlation.NewEngine(bus, incidentfsm.NewService(incidentfsm.NewRepository(), runtimeline.NewRepository()), correlationGraphRepo)
 	signalRepo := pipeline.NewRepository(repository.DB)
-	signalQueue := pipeline.NewQueue(pipeline.Config{Workers: cfg.SignalWorkers, MaxRetries: cfg.SignalMaxRetries, BaseDelay: cfg.SignalRetryBase, MaxDelay: cfg.SignalRetryMax}, signalRepo.Persist, func(ctx context.Context, item signal.Signal, cause error, attempts int) {
+	graphHandler := pipeline.NewGraphHandler(signalRepo)
+	signalQueue := pipeline.NewQueue(pipeline.Config{Workers: cfg.SignalWorkers, MaxRetries: cfg.SignalMaxRetries, BaseDelay: cfg.SignalRetryBase, MaxDelay: cfg.SignalRetryMax}, graphHandler.Handle, func(ctx context.Context, item signal.Signal, cause error, attempts int) {
+		_ = signalRepo.MarkUnmatched(ctx, item.ID, cause.Error())
 		_ = signalRepo.RecordDeadLetter(ctx, item, "processing", cause, attempts)
 	})
 	signalQueue.SetMetrics(pipeline.NewMetrics(prommetrics.DefaultRegisterer, signalQueue.Depth))
 	resourceGraphRepo := resourcegraph.NewRepository(repository.DB)
 	graphProcessor := resourcegraph.NewProcessor(cfg.SignalWorkers, 1024, resourceGraphRepo.Apply)
-	informer := runtimeinformer.NewK8sEventInformer(restConfig, cfg.ClusterID, signalQueue.Enqueue, readiness.SetCacheSynced).WithResourceEnqueue(graphProcessor.Enqueue)
+	informer := runtimeinformer.NewK8sEventInformer(restConfig, cfg.ClusterID, signalQueue.Enqueue, readiness.SetCacheSynced).WithResourceEnqueue(graphProcessor.Enqueue).WithResolver(graphHandler.SetResolver)
 	syncer := runtimesync.NewAlertSyncer(mgr.GetClient(), runtimeprom.NewClient(cfg.PrometheusURL), bus)
 	return []Component{
 		componentFunc{name: "controller manager", run: mgr.Start},

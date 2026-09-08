@@ -17,6 +17,8 @@ var ErrShuttingDown = errors.New("signal queue is shutting down")
 type Handler func(context.Context, signal.Signal) error
 type DeadLetterHandler func(context.Context, signal.Signal, error, int)
 
+type retryableError interface{ Retryable() bool }
+
 type Config struct {
 	Workers    int
 	MaxRetries int
@@ -96,7 +98,12 @@ func (q *Queue) worker(ctx context.Context) {
 				return
 			}
 			attempts := q.queue.NumRequeues(key) + 1
-			if attempts <= q.maxRetries {
+			retryable := true
+			var classified retryableError
+			if errors.As(err, &classified) {
+				retryable = classified.Retryable()
+			}
+			if retryable && attempts <= q.maxRetries {
 				if q.metrics != nil {
 					q.metrics.retries.With(labels(string(s.Source), string(s.Type))).Inc()
 				}

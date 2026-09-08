@@ -12,6 +12,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -26,6 +27,7 @@ type K8sEventInformer struct {
 	clusterID       string
 	enqueue         EnqueueFunc
 	resourceEnqueue ResourceEnqueueFunc
+	resolverReady   func(*resourcegraph.Resolver)
 	ready           func(bool)
 	resync          time.Duration
 }
@@ -36,6 +38,11 @@ func NewK8sEventInformer(config *rest.Config, clusterID string, enqueue EnqueueF
 
 func (i *K8sEventInformer) WithResourceEnqueue(enqueue ResourceEnqueueFunc) *K8sEventInformer {
 	i.resourceEnqueue = enqueue
+	return i
+}
+
+func (i *K8sEventInformer) WithResolver(ready func(*resourcegraph.Resolver)) *K8sEventInformer {
+	i.resolverReady = ready
 	return i
 }
 
@@ -63,6 +70,13 @@ func (i *K8sEventInformer) Start(ctx context.Context) error {
 			if err := i.registerResourceHandler(registration); err != nil {
 				return err
 			}
+		}
+		if i.resolverReady != nil {
+			indexed := make([]resourcegraph.IndexedResource, 0, len(registrations))
+			for _, registration := range registrations {
+				indexed = append(indexed, resourcegraph.IndexedResource{Indexer: registration.informer.GetIndexer(), GVK: schema.FromAPIVersionAndKind(registration.apiVersion, registration.kind)})
+			}
+			i.resolverReady(resourcegraph.NewResolver(indexed, 8))
 		}
 	}
 	factory.Start(ctx.Done())
