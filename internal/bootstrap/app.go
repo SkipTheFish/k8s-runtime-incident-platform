@@ -191,6 +191,7 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 	signalQueue.SetMetrics(pipeline.NewMetrics(prommetrics.DefaultRegisterer, signalQueue.Depth))
 	resourceGraphRepo := resourcegraph.NewRepository(repository.DB)
 	graphProcessor := resourcegraph.NewProcessor(cfg.SignalWorkers, 1024, resourceGraphRepo.Apply)
+	graphCleaner := resourcegraph.NewCleaner(cfg.ResourceGraph.Retention, cfg.ResourceGraph.CleanupInterval, cfg.ResourceGraph.CleanupTimeout, cfg.ResourceGraph.CleanupBatch, resourceGraphRepo.CleanExpired)
 	informer := runtimeinformer.NewK8sEventInformer(restConfig, cfg.ClusterID, signalQueue.Enqueue, readiness.SetCacheSynced).WithResourceEnqueue(graphProcessor.Enqueue).WithResolver(graphHandler.SetResolver)
 	syncer := runtimesync.NewAlertSyncer(mgr.GetClient(), runtimeprom.NewClient(cfg.PrometheusURL), bus)
 	return []Component{
@@ -198,6 +199,7 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 		componentFunc{name: "informer", run: informer.Start},
 		componentFunc{name: "signal worker", run: signalQueue.Run},
 		componentFunc{name: "resource graph worker", run: graphProcessor.Run},
+		componentFunc{name: "resource graph cleaner", run: graphCleaner.Run},
 		componentFunc{name: "worker", run: func(ctx context.Context) error { correlationEngine.Start(ctx); return nil }},
 		componentFunc{name: "dispatcher", run: func(ctx context.Context) error { syncer.Start(ctx); return nil }},
 	}, nil

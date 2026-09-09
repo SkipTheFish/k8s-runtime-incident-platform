@@ -29,6 +29,8 @@ func TestLoad(t *testing.T) {
 		{name: "invalid port", values: required(secretDSN, "APP_PORT", "70000"), wantError: "APP_PORT"},
 		{name: "invalid workers", values: required(secretDSN, "WEBHOOK_WORKERS", "0"), wantError: "WEBHOOK_WORKERS"},
 		{name: "invalid duration", values: required(secretDSN, "SHUTDOWN_TIMEOUT", "forever"), wantError: "SHUTDOWN_TIMEOUT"},
+		{name: "invalid graph retention", values: required(secretDSN, "RESOURCE_GRAPH_RETENTION", "0s"), wantError: "RESOURCE_GRAPH_RETENTION"},
+		{name: "invalid cleanup batch", values: required(secretDSN, "RESOURCE_GRAPH_CLEANUP_BATCH", "0"), wantError: "RESOURCE_GRAPH_CLEANUP_BATCH"},
 		{name: "invalid URL", values: required(secretDSN, "LOKI_URL", "http://"), wantError: "LOKI_URL"},
 		{name: "invalid boolean", values: required(secretDSN, "KUBERNETES_ENABLED", "sometimes"), wantError: "KUBERNETES_ENABLED"},
 	}

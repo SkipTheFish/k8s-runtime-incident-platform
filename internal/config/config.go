@@ -35,6 +35,12 @@ type Config struct {
 	SignalMaxRetries  int
 	SignalRetryBase   time.Duration
 	SignalRetryMax    time.Duration
+	ResourceGraph     struct {
+		Retention       time.Duration
+		CleanupInterval time.Duration
+		CleanupTimeout  time.Duration
+		CleanupBatch    int
+	}
 }
 
 var Cfg *Config
@@ -116,6 +122,18 @@ func load(get func(string) string) (*Config, error) {
 		return nil, err
 	}
 	if cfg.SignalRetryMax, err = parseDuration("SIGNAL_RETRY_MAX", get("SIGNAL_RETRY_MAX"), 30*time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.ResourceGraph.Retention, err = parseDuration("RESOURCE_GRAPH_RETENTION", get("RESOURCE_GRAPH_RETENTION"), 7*24*time.Hour); err != nil {
+		return nil, err
+	}
+	if cfg.ResourceGraph.CleanupInterval, err = parseDuration("RESOURCE_GRAPH_CLEANUP_INTERVAL", get("RESOURCE_GRAPH_CLEANUP_INTERVAL"), time.Hour); err != nil {
+		return nil, err
+	}
+	if cfg.ResourceGraph.CleanupTimeout, err = parseDuration("RESOURCE_GRAPH_CLEANUP_TIMEOUT", get("RESOURCE_GRAPH_CLEANUP_TIMEOUT"), 5*time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.ResourceGraph.CleanupBatch, err = parseInt("RESOURCE_GRAPH_CLEANUP_BATCH", get("RESOURCE_GRAPH_CLEANUP_BATCH"), 100, 1, 10000); err != nil {
 		return nil, err
 	}
 	return cfg, nil
