@@ -3,6 +3,7 @@ package signal
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,6 +14,8 @@ var ErrFiltered = errors.New("event filtered")
 var acceptedWarningReasons = map[string]struct{}{
 	"ImagePullBackOff": {}, "ErrImagePull": {}, "BackOff": {}, "FailedScheduling": {},
 }
+
+var containerFieldPath = regexp.MustCompile(`(?:initContainers|containers)\{([^}]+)\}`)
 
 func FromKubernetesEvent(clusterID string, event *corev1.Event, observedAt time.Time) (Signal, error) {
 	if event.Type != corev1.EventTypeWarning {
@@ -38,6 +41,9 @@ func FromKubernetesEvent(clusterID string, event *corev1.Event, observedAt time.
 		SourceEventKey: sourceKey, Reason: event.Reason, Namespace: event.InvolvedObject.Namespace,
 		Resource:        ObjectReference{APIVersion: event.InvolvedObject.APIVersion, Kind: event.InvolvedObject.Kind, Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name, UID: string(event.InvolvedObject.UID)},
 		OwnerReferences: owners, Message: event.Message, OccurredAt: occurredAt, ObservedAt: observedAt,
+	}
+	if match := containerFieldPath.FindStringSubmatch(event.InvolvedObject.FieldPath); len(match) == 2 {
+		s.Labels = map[string]string{"container": match[1]}
 	}
 	return Normalize(s), nil
 }

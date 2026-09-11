@@ -30,6 +30,18 @@ func TestFromKubernetesEvent(t *testing.T) {
 	}
 }
 
+func TestFromKubernetesEventExtractsContainer(t *testing.T) {
+	now := time.Now()
+	event := &corev1.Event{ObjectMeta: metav1.ObjectMeta{UID: "event"}, Type: corev1.EventTypeWarning, Reason: "ImagePullBackOff", EventTime: metav1.MicroTime{Time: now}, InvolvedObject: corev1.ObjectReference{UID: "pod", Kind: "Pod", Name: "pod", Namespace: "ns", FieldPath: "spec.containers{api}"}}
+	got, err := FromKubernetesEvent("c", event, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Labels["container"] != "api" {
+		t.Fatalf("labels=%v", got.Labels)
+	}
+}
+
 func TestKubernetesEventFiltering(t *testing.T) {
 	event := &corev1.Event{Type: corev1.EventTypeNormal, Reason: "Pulled", LastTimestamp: metav1.Now()}
 	_, err := FromKubernetesEvent("cluster", event, time.Now())
