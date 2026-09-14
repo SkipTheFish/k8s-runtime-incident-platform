@@ -28,6 +28,32 @@ webhooks:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
+  name: correlation-policy-validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-observability-io-v1-correlationpolicy
+  failurePolicy: Fail
+  name: vcorrelationpolicy.kb.io
+  rules:
+  - apiGroups:
+    - observability.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - correlationpolicies
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
   name: validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:

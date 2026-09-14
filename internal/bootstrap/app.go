@@ -179,6 +179,9 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 	if err := (&obsv1.AlertPolicy{}).SetupWebhookWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("register AlertPolicy webhook: %w", err)
 	}
+	if err := (&obsv1.CorrelationPolicy{}).SetupWebhookWithManager(mgr); err != nil {
+		return nil, fmt.Errorf("register CorrelationPolicy webhook: %w", err)
+	}
 	bus := runtimeevent.NewBus()
 	correlationGraphRepo := runtimegraph.NewRepository()
 	correlationEngine := correlation.NewEngine(bus, incidentfsm.NewService(incidentfsm.NewRepository(), runtimeline.NewRepository()), correlationGraphRepo)
