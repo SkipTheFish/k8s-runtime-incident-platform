@@ -15,14 +15,15 @@ var (
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
 
 	// AddToScheme adds the types in this group-version to the given scheme.
-	AddToScheme   = SchemeBuilder.AddToScheme
+	AddToScheme = SchemeBuilder.AddToScheme
 )
 
 func init() {
-    // 【关键】必须在这里把你的所有 CRD 类型注册到 Builder 里
+	// 【关键】必须在这里把你的所有 CRD 类型注册到 Builder 里
 	SchemeBuilder.Register(
-        &AlertPolicy{}, &AlertPolicyList{},
-        &ObservabilityTarget{}, &ObservabilityTargetList{},
-        &ObserveTenant{}, &ObserveTenantList{},
-    )
+		&AlertPolicy{}, &AlertPolicyList{},
+		&CorrelationPolicy{}, &CorrelationPolicyList{},
+		&ObservabilityTarget{}, &ObservabilityTargetList{},
+		&ObserveTenant{}, &ObserveTenantList{},
+	)
 }
