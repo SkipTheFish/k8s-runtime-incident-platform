@@ -10,6 +10,7 @@ import (
 	"observability-platform/internal/alert"
 	"observability-platform/internal/cache"
 	"observability-platform/internal/config"
+	correlationrules "observability-platform/internal/correlation"
 	"observability-platform/internal/database"
 	"observability-platform/internal/datasource/prometheus"
 	"observability-platform/internal/handler"
@@ -175,6 +176,10 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 	}
 	if err := (&operator.AlertPolicyReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Repo: operator.NewPGRepository()}).SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("register AlertPolicy controller: %w", err)
+	}
+	ruleRegistry := correlationrules.NewRegistry(correlationrules.BuiltInRules()...)
+	if err := (&operator.CorrelationPolicyReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Registry: ruleRegistry}).SetupWithManager(mgr); err != nil {
+		return nil, fmt.Errorf("register CorrelationPolicy controller: %w", err)
 	}
 	if err := (&obsv1.AlertPolicy{}).SetupWebhookWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("register AlertPolicy webhook: %w", err)
