@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 
+	"observability-platform/internal/correlation"
 	"observability-platform/internal/resourcegraph"
 	"observability-platform/internal/signal"
 )
@@ -14,6 +17,11 @@ type SignalStore interface {
 	Persist(context.Context, signal.Signal) error
 	MarkMatched(context.Context, string, resourcegraph.ResourceKey) error
 	MarkUnmatched(context.Context, string, string) error
+	RecordDecision(context.Context, signal.Signal, correlation.MatchResult) error
+}
+
+type CorrelationEvaluator interface {
+	Evaluate(context.Context, correlation.EvaluationInput) (correlation.MatchResult, error)
 }
 
 type ResolutionError struct {
@@ -26,9 +34,11 @@ func (e *ResolutionError) Unwrap() error   { return e.Cause }
 func (e *ResolutionError) Retryable() bool { return e.retryable }
 
 type GraphHandler struct {
-	store    SignalStore
-	mu       sync.RWMutex
-	resolver *resourcegraph.Resolver
+	store     SignalStore
+	mu        sync.RWMutex
+	resolver  *resourcegraph.Resolver
+	evaluator CorrelationEvaluator
+	metrics   *CorrelationMetrics
 }
 
 func NewGraphHandler(store SignalStore) *GraphHandler { return &GraphHandler{store: store} }
@@ -38,6 +48,13 @@ func (h *GraphHandler) SetResolver(resolver *resourcegraph.Resolver) {
 	h.resolver = resolver
 	h.mu.Unlock()
 }
+
+func (h *GraphHandler) SetEvaluator(evaluator CorrelationEvaluator) {
+	h.mu.Lock()
+	h.evaluator = evaluator
+	h.mu.Unlock()
+}
+func (h *GraphHandler) SetCorrelationMetrics(metrics *CorrelationMetrics) { h.metrics = metrics }
 
 func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
 	if err := h.store.Persist(ctx, item); err != nil && !errors.Is(err, ErrDuplicate) {
@@ -67,5 +84,41 @@ func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
 		}
 		return classified
 	}
-	return h.store.MarkMatched(ctx, item.ID, result.Root.Key)
+	h.mu.RLock()
+	evaluator := h.evaluator
+	h.mu.RUnlock()
+	if evaluator == nil {
+		return h.store.MarkMatched(ctx, item.ID, result.Root.Key)
+	}
+	started := time.Now()
+	match, evaluateErr := evaluator.Evaluate(ctx, correlation.EvaluationInput{Signal: item, Root: result.Root.Key})
+	if h.metrics != nil {
+		h.metrics.duration.Observe(time.Since(started).Seconds())
+	}
+	if errors.Is(evaluateErr, correlation.ErrNoMatch) {
+		if err := h.store.MarkUnmatched(ctx, item.ID, correlation.ErrNoMatch.Error()); err != nil {
+			return err
+		}
+		if h.metrics != nil {
+			h.metrics.unmatched.Inc()
+		}
+		return h.store.RecordDecision(ctx, item, match)
+	}
+	if evaluateErr != nil {
+		var conflict *correlation.ConflictError
+		if errors.As(evaluateErr, &conflict) {
+			if h.metrics != nil {
+				h.metrics.conflicts.Inc()
+			}
+			slog.Error("correlation policy conflict", "signalID", item.ID, "priority", conflict.Priority, "rules", conflict.Rules)
+			_ = h.store.MarkUnmatched(ctx, item.ID, evaluateErr.Error())
+			_ = h.store.RecordDecision(ctx, item, correlation.MatchResult{Matched: false, Root: result.Root.Key, Explain: correlation.Explain{Reason: evaluateErr.Error()}})
+			return &ResolutionError{Cause: evaluateErr, retryable: false}
+		}
+		return evaluateErr
+	}
+	if err := h.store.MarkMatched(ctx, item.ID, result.Root.Key); err != nil {
+		return err
+	}
+	return h.store.RecordDecision(ctx, item, match)
 }

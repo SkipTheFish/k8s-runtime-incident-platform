@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"observability-platform/internal/correlation"
 	"observability-platform/internal/resourcegraph"
 	"observability-platform/internal/signal"
 
@@ -23,6 +24,20 @@ type memorySignalStore struct {
 	persist   int
 	matched   chan resourcegraph.ResourceKey
 	unmatched int
+	decisions []correlation.MatchResult
+}
+
+func (s *memorySignalStore) RecordDecision(_ context.Context, _ signal.Signal, result correlation.MatchResult) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.decisions = append(s.decisions, result)
+	return nil
+}
+
+type evaluatorFunc func(context.Context, correlation.EvaluationInput) (correlation.MatchResult, error)
+
+func (f evaluatorFunc) Evaluate(ctx context.Context, input correlation.EvaluationInput) (correlation.MatchResult, error) {
+	return f(ctx, input)
 }
 
 func (s *memorySignalStore) Persist(context.Context, signal.Signal) error {
@@ -137,4 +152,54 @@ func newGraphIndexer() cache.Indexer {
 			return []string{accessor.GetNamespace() + "\x00" + accessor.GetName()}, nil
 		},
 	})
+}
+
+func TestGraphHandlerPersistsMatchedAndUnmatchedDecisions(t *testing.T) {
+	nodeIndexer := newGraphIndexer()
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: types.UID("node-1")}}
+	if err := nodeIndexer.Add(node); err != nil {
+		t.Fatal(err)
+	}
+	resolver := resourcegraph.NewResolver([]resourcegraph.IndexedResource{{Indexer: nodeIndexer, GVK: schema.FromAPIVersionAndKind("v1", "Node")}}, 8)
+	tests := []struct {
+		name                       string
+		evaluator                  evaluatorFunc
+		wantMatched, wantUnmatched bool
+	}{
+		{"matched", func(_ context.Context, input correlation.EvaluationInput) (correlation.MatchResult, error) {
+			return correlation.MatchResult{Matched: true, Root: input.Root, RuleName: "rule", RuleVersion: "v1", Fingerprint: "fp"}, nil
+		}, true, false},
+		{"unmatched", func(_ context.Context, input correlation.EvaluationInput) (correlation.MatchResult, error) {
+			return correlation.MatchResult{Root: input.Root, Explain: correlation.Explain{Reason: correlation.ErrNoMatch.Error()}}, correlation.ErrNoMatch
+		}, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &memorySignalStore{matched: make(chan resourcegraph.ResourceKey, 1)}
+			handler := NewGraphHandler(store)
+			handler.SetResolver(resolver)
+			handler.SetEvaluator(tt.evaluator)
+			item := signal.Signal{ID: "s", ClusterID: "c", Resource: signal.ObjectReference{APIVersion: "v1", Kind: "Node", Name: "node", UID: "node-1"}}
+			if err := handler.Handle(context.Background(), item); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			decisions := len(store.decisions)
+			unmatched := store.unmatched
+			store.mu.Unlock()
+			if decisions != 1 || (unmatched > 0) != tt.wantUnmatched {
+				t.Fatalf("decisions=%d unmatched=%d", decisions, unmatched)
+			}
+			select {
+			case <-store.matched:
+				if !tt.wantMatched {
+					t.Fatal("unexpected matched")
+				}
+			default:
+				if tt.wantMatched {
+					t.Fatal("not marked matched")
+				}
+			}
+		})
+	}
 }

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
+	"observability-platform/internal/correlation"
 	"observability-platform/internal/resourcegraph"
 	"observability-platform/internal/signal"
 
@@ -73,6 +75,30 @@ func (r *Repository) MarkUnmatched(ctx context.Context, signalID, reason string)
 		reason = reason[:1024]
 	}
 	_, err := r.db.Exec(ctx, `UPDATE signals SET resolution_status='unmatched',resolution_error=$2 WHERE id=$1`, signalID, reason)
+	return err
+}
+
+func (r *Repository) RecordDecision(ctx context.Context, item signal.Signal, result correlation.MatchResult) error {
+	root, _ := json.Marshal(result.Root)
+	conditions, _ := json.Marshal(result.Explain.MatchedConditions)
+	ruleName, ruleVersion := result.RuleName, result.RuleVersion
+	if ruleName == "" {
+		ruleName = "none"
+	}
+	if ruleVersion == "" {
+		ruleVersion = "v1"
+	}
+	windowStart := item.OccurredAt
+	if result.Window > 0 {
+		windowStart = item.OccurredAt.Truncate(result.Window)
+	}
+	windowEnd := windowStart.Add(result.Window)
+	if !windowEnd.After(windowStart) {
+		windowEnd = windowStart.Add(time.Nanosecond)
+	}
+	_, err := r.db.Exec(ctx, `INSERT INTO correlation_decisions(signal_id,rule_name,rule_version,policy_generation,root_resource,fingerprint,window_start,window_end,matched_conditions,reason)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+ON CONFLICT(signal_id,rule_name,rule_version,policy_generation) DO UPDATE SET root_resource=EXCLUDED.root_resource,fingerprint=EXCLUDED.fingerprint,window_start=EXCLUDED.window_start,window_end=EXCLUDED.window_end,matched_conditions=EXCLUDED.matched_conditions,reason=EXCLUDED.reason`, item.ID, ruleName, ruleVersion, result.PolicyGeneration, root, result.Fingerprint, windowStart, windowEnd, conditions, result.Explain.Reason)
 	return err
 }
 
