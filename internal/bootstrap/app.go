@@ -72,14 +72,15 @@ func New(cfg *config.Config) (*App, error) {
 	readiness := handler.NewReadiness(repository.DB.Ping, cfg.KubernetesEnabled, cfg.Postgres.Timeout)
 	readiness.SetMigrationsReady(true)
 
-	router, engine := buildRouter(cfg, readiness)
+	ruleRegistry := correlationrules.NewRegistry(correlationrules.BuiltInRules()...)
+	router, engine := buildRouter(cfg, readiness, ruleRegistry)
 	app := &App{cfg: cfg, server: &http.Server{Addr: fmt.Sprintf(":%d", cfg.App.Port), Handler: router}}
 	app.components = append(app.components, componentFunc{name: "alert engine", run: func(ctx context.Context) error {
 		engine.Start(ctx)
 		return nil
 	}})
 	if cfg.KubernetesEnabled {
-		components, err := kubernetesComponents(cfg, readiness)
+		components, err := kubernetesComponents(cfg, readiness, ruleRegistry)
 		if err != nil {
 			repository.DB.Close()
 			return nil, err
@@ -114,7 +115,7 @@ func (a *App) runHTTP(ctx context.Context) error {
 	}
 }
 
-func buildRouter(cfg *config.Config, readiness *handler.Readiness) (*gin.Engine, *alert.Engine) {
+func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry) (*gin.Engine, *alert.Engine) {
 	redisCache := cache.NewRedis(cfg.Redis.Addr)
 	queryCache := query.NewRedisQueryCache(redisCache)
 	promClient := prometheus.NewClient(cfg.PrometheusURL)
@@ -133,6 +134,7 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness) (*gin.Engine,
 	alertHandler := alert.NewHandler(alert.NewService(alertRepo))
 	incidentHandler := incident.NewHandler(incidentService)
 	timelineHandler := timeline.NewHandler(timeline.NewService(timelineRepo))
+	simulationHandler := correlationrules.NewSimulationHandler(correlationrules.NewSimulator(ruleRegistry, pipeline.NewRepository(repository.DB), 1000))
 
 	r := gin.Default()
 	r.GET("/health", handler.Health)
@@ -148,6 +150,7 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness) (*gin.Engine,
 	traces.GET("/search", tracesHandler.Search)
 	traces.GET("/:traceId", tracesHandler.GetTrace)
 	api.POST("/alerts/policy", alertHandler.CreatePolicy)
+	api.POST("/correlation-policies/:name/simulate", simulationHandler.Simulate)
 	incidents := api.Group("/incidents")
 	incidents.GET("", incidentHandler.List)
 	incidents.GET("/open", incidentHandler.ListOpen)
@@ -161,7 +164,7 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness) (*gin.Engine,
 	return r, alert.NewEngine(metricsService, alertRepo, incidentService)
 }
 
-func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]Component, error) {
+func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry) ([]Component, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(obsv1.AddToScheme(scheme))
@@ -177,7 +180,6 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness) ([]C
 	if err := (&operator.AlertPolicyReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Repo: operator.NewPGRepository()}).SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("register AlertPolicy controller: %w", err)
 	}
-	ruleRegistry := correlationrules.NewRegistry(correlationrules.BuiltInRules()...)
 	if err := (&operator.CorrelationPolicyReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Registry: ruleRegistry}).SetupWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("register CorrelationPolicy controller: %w", err)
 	}

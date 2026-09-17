@@ -50,6 +50,15 @@ func (r *Registry) Snapshot() []CorrelationRule {
 	return append([]CorrelationRule(nil), r.rules...)
 }
 
+func (r *Registry) Find(name string) (CorrelationRule, bool) {
+	for _, rule := range r.Snapshot() {
+		if rule.Name() == name || strings.HasSuffix(rule.Name(), "/"+name) {
+			return rule, true
+		}
+	}
+	return nil, false
+}
+
 func (r *Registry) Evaluate(ctx context.Context, input EvaluationInput) (MatchResult, error) {
 	rules := r.Snapshot()
 	for index := 0; index < len(rules); {

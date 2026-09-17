@@ -20,7 +20,7 @@ func TestCorrelationPolicyValidatorRejectionsAndLegalPolicy(t *testing.T) {
 	}
 	existing := validCorrelationPolicy()
 	existing.Name = "existing"
-	validator := &CorrelationPolicyValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()}
+	validator := &correlationPolicyValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()}
 	tests := []struct {
 		name   string
 		mutate func(*CorrelationPolicy)

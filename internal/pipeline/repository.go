@@ -102,6 +102,29 @@ ON CONFLICT(signal_id,rule_name,rule_version,policy_generation) DO UPDATE SET ro
 	return err
 }
 
+func (r *Repository) LoadSimulationInputs(ctx context.Context, ids []string, limit int) ([]correlation.SimulationInput, error) {
+	if len(ids) > limit {
+		return nil, correlation.ErrSimulationLimit
+	}
+	rows, err := r.db.Query(ctx, `SELECT id,cluster_id,source,type,source_event_key,reason,namespace,resource_api_version,resource_kind,resource_name,resource_uid,labels,message,occurred_at,observed_at,COALESCE(root_resource_uid,''),COALESCE(root_resource_kind,''),COALESCE(root_resource_namespace,''),COALESCE(root_resource_name,'') FROM signals WHERE id=ANY($1) LIMIT $2`, ids, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]correlation.SimulationInput, 0, len(ids))
+	for rows.Next() {
+		var input correlation.SimulationInput
+		var labels []byte
+		if err := rows.Scan(&input.Signal.ID, &input.Signal.ClusterID, &input.Signal.Source, &input.Signal.Type, &input.Signal.SourceEventKey, &input.Signal.Reason, &input.Signal.Namespace, &input.Signal.Resource.APIVersion, &input.Signal.Resource.Kind, &input.Signal.Resource.Name, &input.Signal.Resource.UID, &labels, &input.Signal.Message, &input.Signal.OccurredAt, &input.Signal.ObservedAt, &input.Root.UID, &input.Root.Kind, &input.Root.Namespace, &input.Root.Name); err != nil {
+			return nil, err
+		}
+		input.Root.ClusterID = input.Signal.ClusterID
+		_ = json.Unmarshal(labels, &input.Signal.Labels)
+		result = append(result, input)
+	}
+	return result, rows.Err()
+}
+
 func (r *Repository) ListDeadLetters(ctx context.Context, status string, limit int) ([]DeadLetter, error) {
 	rows, err := r.db.Query(ctx, `SELECT id,COALESCE(signal_id,''),status,error_category,last_error,attempts FROM dead_letter_events WHERE status=$1 ORDER BY id DESC LIMIT $2`, status, limit)
 	if err != nil {

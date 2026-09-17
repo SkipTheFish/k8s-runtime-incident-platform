@@ -19,23 +19,23 @@ var supportedCorrelationGroupBy = map[string]struct{}{
 }
 
 // +kubebuilder:webhook:path=/validate-observability-io-v1-correlationpolicy,mutating=false,failurePolicy=fail,sideEffects=None,groups=observability.io,resources=correlationpolicies,verbs=create;update,versions=v1,name=vcorrelationpolicy.kb.io,admissionReviewVersions=v1
-type CorrelationPolicyValidator struct{ Client client.Client }
+type correlationPolicyValidator struct{ Client client.Client }
 
 func (r *CorrelationPolicy) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr, r).WithValidator(&CorrelationPolicyValidator{Client: mgr.GetClient()}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr, r).WithValidator(&correlationPolicyValidator{Client: mgr.GetClient()}).Complete()
 }
 
-func (v *CorrelationPolicyValidator) ValidateCreate(ctx context.Context, obj *CorrelationPolicy) (admission.Warnings, error) {
+func (v *correlationPolicyValidator) ValidateCreate(ctx context.Context, obj *CorrelationPolicy) (admission.Warnings, error) {
 	return nil, v.validate(ctx, obj)
 }
-func (v *CorrelationPolicyValidator) ValidateUpdate(ctx context.Context, _, newObject *CorrelationPolicy) (admission.Warnings, error) {
+func (v *correlationPolicyValidator) ValidateUpdate(ctx context.Context, _, newObject *CorrelationPolicy) (admission.Warnings, error) {
 	return nil, v.validate(ctx, newObject)
 }
-func (v *CorrelationPolicyValidator) ValidateDelete(context.Context, *CorrelationPolicy) (admission.Warnings, error) {
+func (v *correlationPolicyValidator) ValidateDelete(context.Context, *CorrelationPolicy) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (v *CorrelationPolicyValidator) validate(ctx context.Context, policy *CorrelationPolicy) error {
+func (v *correlationPolicyValidator) validate(ctx context.Context, policy *CorrelationPolicy) error {
 	root := field.NewPath("spec")
 	var errs field.ErrorList
 	if len(policy.Spec.GroupBy) == 0 {

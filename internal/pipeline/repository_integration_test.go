@@ -64,4 +64,25 @@ func TestRepositoryIntegration(t *testing.T) {
 	if rule != "crash-loop-backoff" || generation != 4 || reason != "deterministic rule match" {
 		t.Fatalf("decision=%s %d %s", rule, generation, reason)
 	}
+	if err := repo.MarkMatched(ctx, s.ID, resourcegraph.ResourceKey{ClusterID: "c", Kind: "Deployment", UID: "root"}); err != nil {
+		t.Fatal(err)
+	}
+	var before, after int
+	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM incidents)+(SELECT count(*) FROM timeline_entries)+(SELECT count(*) FROM correlation_decisions)+(SELECT count(*) FROM outbox_events)`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	simulator := correlation.NewSimulator(correlation.NewRegistry(correlation.NewCrashLoopBackOffRule(1)), repo, 10)
+	result, err := simulator.Simulate(ctx, "crash-loop-backoff", correlation.SimulationRequest{Generation: 4, HistoricalSignalIDs: []string{s.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.InputCount != 1 || len(result.Incidents) != 1 {
+		t.Fatalf("simulation=%#v", result)
+	}
+	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM incidents)+(SELECT count(*) FROM timeline_entries)+(SELECT count(*) FROM correlation_decisions)+(SELECT count(*) FROM outbox_events)`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Fatalf("business rows changed: before=%d after=%d", before, after)
+	}
 }
