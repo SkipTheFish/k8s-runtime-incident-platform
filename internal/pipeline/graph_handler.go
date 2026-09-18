@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"observability-platform/internal/correlation"
+	"observability-platform/internal/incident"
 	"observability-platform/internal/resourcegraph"
 	"observability-platform/internal/signal"
 )
@@ -22,6 +23,9 @@ type SignalStore interface {
 
 type CorrelationEvaluator interface {
 	Evaluate(context.Context, correlation.EvaluationInput) (correlation.MatchResult, error)
+}
+type IncidentProcessor interface {
+	Process(context.Context, signal.Signal, correlation.MatchResult) (incident.ProcessResult, error)
 }
 
 type ResolutionError struct {
@@ -39,6 +43,7 @@ type GraphHandler struct {
 	resolver  *resourcegraph.Resolver
 	evaluator CorrelationEvaluator
 	metrics   *CorrelationMetrics
+	incidents IncidentProcessor
 }
 
 func NewGraphHandler(store SignalStore) *GraphHandler { return &GraphHandler{store: store} }
@@ -55,6 +60,7 @@ func (h *GraphHandler) SetEvaluator(evaluator CorrelationEvaluator) {
 	h.mu.Unlock()
 }
 func (h *GraphHandler) SetCorrelationMetrics(metrics *CorrelationMetrics) { h.metrics = metrics }
+func (h *GraphHandler) SetIncidentProcessor(processor IncidentProcessor)  { h.incidents = processor }
 
 func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
 	if err := h.store.Persist(ctx, item); err != nil && !errors.Is(err, ErrDuplicate) {
@@ -116,6 +122,10 @@ func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
 			return &ResolutionError{Cause: evaluateErr, retryable: false}
 		}
 		return evaluateErr
+	}
+	if h.incidents != nil {
+		_, err := h.incidents.Process(ctx, item, match)
+		return err
 	}
 	if err := h.store.MarkMatched(ctx, item.ID, result.Root.Key); err != nil {
 		return err
