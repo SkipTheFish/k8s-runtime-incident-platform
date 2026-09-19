@@ -20,6 +20,63 @@ type ProcessResult struct {
 	Attached   bool
 }
 
+type TransitionOutcome struct {
+	IncidentID int64
+	Status     IncidentStatus
+	Version    int64
+	Changed    bool
+}
+
+func (s *TransactionService) ApplyTransition(ctx context.Context, incidentID int64, command TransitionCommand) (TransitionOutcome, error) {
+	if command.Target != IncidentAcknowledged && command.Target != IncidentResolved {
+		return TransitionOutcome{}, &DomainError{Code: CodeInvalidCommand, Message: "only acknowledge and resolve commands are supported"}
+	}
+	txCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	tx, err := s.db.BeginTx(txCtx, pgx.TxOptions{})
+	if err != nil {
+		return TransitionOutcome{}, err
+	}
+	defer tx.Rollback(txCtx)
+	var current IncidentStatus
+	var version int64
+	if err := tx.QueryRow(txCtx, `SELECT status,version FROM incidents WHERE id=$1 FOR UPDATE`, incidentID).Scan(&current, &version); err != nil {
+		return TransitionOutcome{}, err
+	}
+	transition, err := Transition(current, command)
+	if err != nil {
+		return TransitionOutcome{}, err
+	}
+	if !transition.Changed {
+		if err := tx.Commit(txCtx); err != nil {
+			return TransitionOutcome{}, err
+		}
+		return TransitionOutcome{IncidentID: incidentID, Status: current, Version: version}, nil
+	}
+	nextVersion := version + 1
+	if command.Target == IncidentAcknowledged {
+		_, err = tx.Exec(txCtx, `UPDATE incidents SET status=$2,acknowledged_at=$3,updated_at=$3,version=$4 WHERE id=$1`, incidentID, command.Target, command.OccurredAt, nextVersion)
+	} else {
+		_, err = tx.Exec(txCtx, `UPDATE incidents SET status=$2,resolved_at=$3,updated_at=$3,version=$4 WHERE id=$1`, incidentID, command.Target, command.OccurredAt, nextVersion)
+	}
+	if err != nil {
+		return TransitionOutcome{}, err
+	}
+	eventType := "incident." + string(command.Target)
+	key := fmt.Sprintf("transition:%s:v%d", command.Target, nextVersion)
+	if _, err := tx.Exec(txCtx, `INSERT INTO timeline_entries(incident_id,idempotency_key,entry_type,actor,message,evidence,occurred_at) VALUES($1,$2,$3,$4,$5,'{}',$6) ON CONFLICT(incident_id,idempotency_key) DO NOTHING`, incidentID, key, eventType, command.Actor, command.Reason, command.OccurredAt); err != nil {
+		return TransitionOutcome{}, err
+	}
+	payload, _ := json.Marshal(map[string]any{"incidentID": incidentID, "status": command.Target, "version": nextVersion, "actor": command.Actor, "reason": command.Reason, "occurredAt": command.OccurredAt})
+	if _, err := tx.Exec(txCtx, `INSERT INTO outbox_events(event_id,incident_id,event_type,payload) VALUES($1,$2,$3,$4) ON CONFLICT(event_id) DO NOTHING`, fmt.Sprintf("%s:%d:v%d", eventType, incidentID, nextVersion), incidentID, eventType, payload); err != nil {
+		return TransitionOutcome{}, err
+	}
+	if err := tx.Commit(txCtx); err != nil {
+		return TransitionOutcome{}, err
+	}
+	return TransitionOutcome{IncidentID: incidentID, Status: command.Target, Version: nextVersion, Changed: true}, nil
+}
+
 type TransactionService struct {
 	db      *pgxpool.Pool
 	timeout time.Duration
