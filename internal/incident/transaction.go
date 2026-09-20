@@ -18,6 +18,7 @@ type ProcessResult struct {
 	Version    int64
 	Created    bool
 	Attached   bool
+	Reopened   bool
 }
 
 type TransitionOutcome struct {
@@ -122,13 +123,28 @@ func (s *TransactionService) Process(ctx context.Context, item signal.Signal, ma
 	result := ProcessResult{}
 	err = tx.QueryRow(txCtx, `SELECT id,version FROM incidents WHERE fingerprint=$1 AND lower(status) IN ('open','acknowledged','reopened') FOR UPDATE`, match.Fingerprint).Scan(&result.IncidentID, &result.Version)
 	if err == pgx.ErrNoRows {
-		err = tx.QueryRow(txCtx, `INSERT INTO incidents(tenant_id,title,status,namespace,policy_name,severity,started_at,updated_at,last_event_at,fingerprint,category,root_resource,version,correlation_policy,policy_generation)
-VALUES('default',$1,'open',$2,$3,$4,$5,$5,$5,$6,$7,$8,1,$3,$9)
-ON CONFLICT(fingerprint) WHERE lower(status) IN ('open','acknowledged','reopened') DO NOTHING RETURNING id,version`, incidentTitle(match, item), item.Namespace, match.RuleName, match.Severity, occurred, match.Fingerprint, match.RuleName, rootJSON, match.PolicyGeneration).Scan(&result.IncidentID, &result.Version)
-		if err == pgx.ErrNoRows {
-			err = tx.QueryRow(txCtx, `SELECT id,version FROM incidents WHERE fingerprint=$1 AND lower(status) IN ('open','acknowledged','reopened') FOR UPDATE`, match.Fingerprint).Scan(&result.IncidentID, &result.Version)
-		} else if err == nil {
-			result.Created = true
+		var resolvedID, resolvedVersion int64
+		var resolvedAt time.Time
+		var reopenSeconds int64
+		resolvedErr := tx.QueryRow(txCtx, `SELECT id,version,resolved_at,reopen_window_seconds FROM incidents WHERE fingerprint=$1 AND lower(status)='resolved' AND resolved_at IS NOT NULL ORDER BY resolved_at DESC,id DESC LIMIT 1 FOR UPDATE`, match.Fingerprint).Scan(&resolvedID, &resolvedVersion, &resolvedAt, &reopenSeconds)
+		if resolvedErr == nil && !occurred.After(resolvedAt.Add(time.Duration(reopenSeconds)*time.Second)) {
+			result.IncidentID, result.Version, result.Reopened = resolvedID, resolvedVersion+1, true
+			_, err = tx.Exec(txCtx, `UPDATE incidents SET status='reopened',reopen_count=reopen_count+1,version=$2,resolved_at=NULL,updated_at=$3,last_event_at=$3 WHERE id=$1`, resolvedID, result.Version, occurred)
+		} else if resolvedErr != nil && resolvedErr != pgx.ErrNoRows {
+			return ProcessResult{}, resolvedErr
+		} else {
+			reopenSeconds = int64(match.ReopenWindow / time.Second)
+			if reopenSeconds < 1 {
+				reopenSeconds = 1
+			}
+			err = tx.QueryRow(txCtx, `INSERT INTO incidents(tenant_id,title,status,namespace,policy_name,severity,started_at,updated_at,last_event_at,fingerprint,category,root_resource,version,correlation_policy,policy_generation,reopen_window_seconds)
+VALUES('default',$1,'open',$2,$3,$4,$5,$5,$5,$6,$7,$8,1,$3,$9,$10)
+ON CONFLICT(fingerprint) WHERE lower(status) IN ('open','acknowledged','reopened') DO NOTHING RETURNING id,version`, incidentTitle(match, item), item.Namespace, match.RuleName, match.Severity, occurred, match.Fingerprint, match.RuleName, rootJSON, match.PolicyGeneration, reopenSeconds).Scan(&result.IncidentID, &result.Version)
+			if err == pgx.ErrNoRows {
+				err = tx.QueryRow(txCtx, `SELECT id,version FROM incidents WHERE fingerprint=$1 AND lower(status) IN ('open','acknowledged','reopened') FOR UPDATE`, match.Fingerprint).Scan(&result.IncidentID, &result.Version)
+			} else if err == nil {
+				result.Created = true
+			}
 		}
 	}
 	if err != nil {
@@ -148,7 +164,7 @@ ON CONFLICT(fingerprint) WHERE lower(status) IN ('open','acknowledged','reopened
 		return result, nil
 	}
 	result.Attached = true
-	if !result.Created {
+	if !result.Created && !result.Reopened {
 		if err := tx.QueryRow(txCtx, `UPDATE incidents SET version=version+1,updated_at=$2,last_event_at=$2 WHERE id=$1 RETURNING version`, result.IncidentID, occurred).Scan(&result.Version); err != nil {
 			return ProcessResult{}, err
 		}
@@ -157,6 +173,8 @@ ON CONFLICT(fingerprint) WHERE lower(status) IN ('open','acknowledged','reopened
 	entryType := "incident.updated"
 	if result.Created {
 		entryType = "incident.created"
+	} else if result.Reopened {
+		entryType = "incident.reopened"
 	}
 	if _, err := tx.Exec(txCtx, `INSERT INTO timeline_entries(incident_id,idempotency_key,entry_type,actor,message,evidence,occurred_at) VALUES($1,$2,$3,'system',$4,$5,$6) ON CONFLICT(incident_id,idempotency_key) DO NOTHING`, result.IncidentID, "signal:"+item.ID+":correlated", entryType, match.Explain.Reason, evidence, occurred); err != nil {
 		return ProcessResult{}, err
