@@ -29,6 +29,12 @@ type TransitionOutcome struct {
 }
 
 func (s *TransactionService) ApplyTransition(ctx context.Context, incidentID int64, command TransitionCommand) (TransitionOutcome, error) {
+	return RetryTransaction(ctx, s.retry, func(ctx context.Context) (TransitionOutcome, error) {
+		return s.applyTransitionOnce(ctx, incidentID, command)
+	})
+}
+
+func (s *TransactionService) applyTransitionOnce(ctx context.Context, incidentID int64, command TransitionCommand) (TransitionOutcome, error) {
 	if command.Target != IncidentAcknowledged && command.Target != IncidentResolved {
 		return TransitionOutcome{}, &DomainError{Code: CodeInvalidCommand, Message: "only acknowledge and resolve commands are supported"}
 	}
@@ -81,16 +87,28 @@ func (s *TransactionService) ApplyTransition(ctx context.Context, incidentID int
 type TransactionService struct {
 	db      *pgxpool.Pool
 	timeout time.Duration
+	retry   RetryPolicy
 }
 
 func NewTransactionService(db *pgxpool.Pool, timeout time.Duration) *TransactionService {
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	return &TransactionService{db: db, timeout: timeout}
+	return &TransactionService{db: db, timeout: timeout, retry: DefaultRetryPolicy()}
+}
+
+func (s *TransactionService) WithRetryPolicy(policy RetryPolicy) *TransactionService {
+	s.retry = policy
+	return s
 }
 
 func (s *TransactionService) Process(ctx context.Context, item signal.Signal, match correlation.MatchResult) (ProcessResult, error) {
+	return RetryTransaction(ctx, s.retry, func(ctx context.Context) (ProcessResult, error) {
+		return s.processOnce(ctx, item, match)
+	})
+}
+
+func (s *TransactionService) processOnce(ctx context.Context, item signal.Signal, match correlation.MatchResult) (ProcessResult, error) {
 	txCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	tx, err := s.db.BeginTx(txCtx, pgx.TxOptions{})
