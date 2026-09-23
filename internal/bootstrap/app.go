@@ -195,7 +195,8 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness, rule
 	signalRepo := pipeline.NewRepository(repository.DB)
 	graphHandler := pipeline.NewGraphHandler(signalRepo)
 	graphHandler.SetEvaluator(ruleRegistry)
-	graphHandler.SetIncidentProcessor(incident.NewTransactionService(repository.DB, cfg.Postgres.Timeout))
+	incidentMetrics := incident.NewMetrics(prommetrics.DefaultRegisterer)
+	graphHandler.SetIncidentProcessor(incident.NewTransactionService(repository.DB, cfg.Postgres.Timeout).WithMetrics(incidentMetrics))
 	graphHandler.SetCorrelationMetrics(pipeline.NewCorrelationMetrics(prommetrics.DefaultRegisterer))
 	signalQueue := pipeline.NewQueue(pipeline.Config{Workers: cfg.SignalWorkers, MaxRetries: cfg.SignalMaxRetries, BaseDelay: cfg.SignalRetryBase, MaxDelay: cfg.SignalRetryMax}, graphHandler.Handle, func(ctx context.Context, item signal.Signal, cause error, attempts int) {
 		_ = signalRepo.MarkUnmatched(ctx, item.ID, cause.Error())

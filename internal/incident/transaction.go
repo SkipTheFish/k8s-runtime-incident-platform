@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"observability-platform/internal/correlation"
@@ -29,9 +30,17 @@ type TransitionOutcome struct {
 }
 
 func (s *TransactionService) ApplyTransition(ctx context.Context, incidentID int64, command TransitionCommand) (TransitionOutcome, error) {
-	return RetryTransaction(ctx, s.retry, func(ctx context.Context) (TransitionOutcome, error) {
+	outcome, err := RetryTransaction(ctx, s.retry, func(ctx context.Context) (TransitionOutcome, error) {
 		return s.applyTransitionOnce(ctx, incidentID, command)
 	})
+	if err != nil || !outcome.Changed {
+		return outcome, err
+	}
+	if command.Target == IncidentResolved && s.metrics != nil {
+		s.metrics.resolved.Inc()
+	}
+	slog.Info("incident lifecycle transition", "requestID", requestIDFromContext(ctx), "signalID", "", "incidentID", outcome.IncidentID, "policy", "", "resourceUID", "", "status", outcome.Status, "version", outcome.Version)
+	return outcome, nil
 }
 
 func (s *TransactionService) applyTransitionOnce(ctx context.Context, incidentID int64, command TransitionCommand) (TransitionOutcome, error) {
@@ -88,6 +97,7 @@ type TransactionService struct {
 	db      *pgxpool.Pool
 	timeout time.Duration
 	retry   RetryPolicy
+	metrics *Metrics
 }
 
 func NewTransactionService(db *pgxpool.Pool, timeout time.Duration) *TransactionService {
@@ -102,10 +112,28 @@ func (s *TransactionService) WithRetryPolicy(policy RetryPolicy) *TransactionSer
 	return s
 }
 
+func (s *TransactionService) WithMetrics(metrics *Metrics) *TransactionService {
+	s.metrics = metrics
+	return s
+}
+
 func (s *TransactionService) Process(ctx context.Context, item signal.Signal, match correlation.MatchResult) (ProcessResult, error) {
-	return RetryTransaction(ctx, s.retry, func(ctx context.Context) (ProcessResult, error) {
+	result, err := RetryTransaction(ctx, s.retry, func(ctx context.Context) (ProcessResult, error) {
 		return s.processOnce(ctx, item, match)
 	})
+	if err != nil || !result.Attached {
+		return result, err
+	}
+	if s.metrics != nil {
+		if result.Created {
+			s.metrics.created.Inc()
+		}
+		if result.Reopened {
+			s.metrics.reopened.Inc()
+		}
+	}
+	slog.Info("incident signal correlated", "requestID", requestIDFromContext(ctx), "signalID", item.ID, "incidentID", result.IncidentID, "policy", match.RuleName, "resourceUID", match.Root.UID, "created", result.Created, "reopened", result.Reopened, "version", result.Version)
+	return result, nil
 }
 
 func (s *TransactionService) processOnce(ctx context.Context, item signal.Signal, match correlation.MatchResult) (ProcessResult, error) {
