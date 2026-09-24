@@ -132,7 +132,7 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	timelineRepo := timeline.NewPGRepo()
 	incidentService := incident.NewService(incidentRepo, timelineRepo)
 	alertHandler := alert.NewHandler(alert.NewService(alertRepo))
-	incidentHandler := incident.NewHandler(incidentService)
+	incidentHandler := incident.NewAPIHandler(incident.NewQueryService(incident.NewPGQueryStore()))
 	timelineHandler := timeline.NewHandler(timeline.NewService(timelineRepo))
 	simulationHandler := correlationrules.NewSimulationHandler(correlationrules.NewSimulator(ruleRegistry, pipeline.NewRepository(repository.DB), 1000))
 
