@@ -25,17 +25,20 @@ type Config struct {
 	Redis struct {
 		Addr string
 	}
-	PrometheusURL     string
-	LokiURL           string
-	TempoURL          string
-	ClusterID         string
-	KubernetesEnabled bool
-	WebhookWorkers    int
-	SignalWorkers     int
-	SignalMaxRetries  int
-	SignalRetryBase   time.Duration
-	SignalRetryMax    time.Duration
-	ResourceGraph     struct {
+	PrometheusURL      string
+	LokiURL            string
+	TempoURL           string
+	ClusterID          string
+	TenantID           string
+	KubernetesEnabled  bool
+	HTTPRequestTimeout time.Duration
+	HTTPMaxBodyBytes   int
+	WebhookWorkers     int
+	SignalWorkers      int
+	SignalMaxRetries   int
+	SignalRetryBase    time.Duration
+	SignalRetryMax     time.Duration
+	ResourceGraph      struct {
 		Retention       time.Duration
 		CleanupInterval time.Duration
 		CleanupTimeout  time.Duration
@@ -105,6 +108,13 @@ func load(get func(string) string) (*Config, error) {
 	cfg.ClusterID = strings.TrimSpace(get("CLUSTER_ID"))
 	if cfg.ClusterID == "" {
 		return nil, fieldError("CLUSTER_ID", "is required")
+	}
+	cfg.TenantID = valueOrDefault(get("TENANT_ID"), "default")
+	if cfg.HTTPRequestTimeout, err = parseDuration("HTTP_REQUEST_TIMEOUT", get("HTTP_REQUEST_TIMEOUT"), 15*time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.HTTPMaxBodyBytes, err = parseInt("HTTP_MAX_BODY_BYTES", get("HTTP_MAX_BODY_BYTES"), 1<<20, 1024, 16<<20); err != nil {
+		return nil, err
 	}
 	if cfg.KubernetesEnabled, err = parseBool("KUBERNETES_ENABLED", get("KUBERNETES_ENABLED"), true); err != nil {
 		return nil, err

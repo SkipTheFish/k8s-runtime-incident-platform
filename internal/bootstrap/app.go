@@ -137,11 +137,12 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	simulationHandler := correlationrules.NewSimulationHandler(correlationrules.NewSimulator(ruleRegistry, pipeline.NewRepository(repository.DB), 1000))
 
 	r := gin.Default()
+	r.Use(middleware.RequestIDMiddleware(), middleware.RequestLimits(cfg.HTTPRequestTimeout, int64(cfg.HTTPMaxBodyBytes)))
 	r.GET("/health", handler.Health)
 	r.GET("/livez", readiness.Live)
 	r.GET("/readyz", readiness.Ready)
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
-	api := r.Group("/api/v1", middleware.TenantMiddleware())
+	api := r.Group("/api/v1", middleware.TenantMiddleware(cfg.TenantID))
 	logs := api.Group("/logs")
 	logs.GET("/query", logsHandler.Query)
 	logs.GET("/stats", logsHandler.Stats)

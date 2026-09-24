@@ -1,14 +1,15 @@
 package incident
 
-import "context"
+import (
+	"context"
 
-type requestIDKey struct{}
+	"observability-platform/internal/httpapi"
+)
 
 func WithRequestID(ctx context.Context, requestID string) context.Context {
-	return context.WithValue(ctx, requestIDKey{}, requestID)
+	return httpapi.WithRequestID(ctx, requestID)
 }
 
 func requestIDFromContext(ctx context.Context) string {
-	requestID, _ := ctx.Value(requestIDKey{}).(string)
-	return requestID
+	return httpapi.RequestIDFromContext(ctx)
 }

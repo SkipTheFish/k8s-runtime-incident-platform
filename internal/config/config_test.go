@@ -15,7 +15,7 @@ func TestLoad(t *testing.T) {
 		check     func(*testing.T, *Config)
 	}{
 		{name: "defaults without Kubernetes", values: map[string]string{"POSTGRES_DSN": secretDSN, "CLUSTER_ID": "local", "KUBERNETES_ENABLED": "false"}, check: func(t *testing.T, cfg *Config) {
-			if cfg.App.Port != 8080 || cfg.WebhookWorkers != 2 || cfg.KubernetesEnabled {
+			if cfg.App.Port != 8080 || cfg.WebhookWorkers != 2 || cfg.KubernetesEnabled || cfg.TenantID != "default" || cfg.HTTPRequestTimeout != 15*time.Second || cfg.HTTPMaxBodyBytes != 1<<20 {
 				t.Fatalf("unexpected defaults: %+v", cfg)
 			}
 		}},
