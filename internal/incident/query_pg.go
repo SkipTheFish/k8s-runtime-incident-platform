@@ -73,6 +73,61 @@ func (s *PGQueryStore) Get(ctx context.Context, tenant string, id int64) (*Incid
 	return &item, err
 }
 
+func (s *PGQueryStore) Timeline(ctx context.Context, tenant string, id int64, page, pageSize int) ([]TimelineView, int64, error) {
+	if _, err := s.Get(ctx, tenant, id); err != nil {
+		return nil, 0, err
+	}
+	var total int64
+	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM timeline_entries WHERE incident_id=$1`, id).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.Query(ctx, `SELECT id,entry_type,actor,message,evidence,occurred_at FROM timeline_entries WHERE incident_id=$1 ORDER BY occurred_at,id LIMIT $2 OFFSET $3`, id, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]TimelineView, 0, pageSize)
+	for rows.Next() {
+		var item TimelineView
+		var evidence []byte
+		if err := rows.Scan(&item.ID, &item.Type, &item.Actor, &item.Message, &evidence, &item.OccurredAt); err != nil {
+			return nil, 0, err
+		}
+		item.Evidence, item.Truncated = SanitizeJSON(evidence)
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
+func (s *PGQueryStore) Correlation(ctx context.Context, tenant string, id int64, page, pageSize int) ([]CorrelationView, int64, error) {
+	if _, err := s.Get(ctx, tenant, id); err != nil {
+		return nil, 0, err
+	}
+	var total int64
+	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM correlation_decisions WHERE incident_id=$1`, id).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.Query(ctx, `SELECT id,signal_id,rule_name,rule_version,policy_generation,root_resource,fingerprint,matched_conditions,reason,decided_at FROM correlation_decisions WHERE incident_id=$1 ORDER BY decided_at,id LIMIT $2 OFFSET $3`, id, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]CorrelationView, 0, pageSize)
+	for rows.Next() {
+		var item CorrelationView
+		var root, conditions []byte
+		if err := rows.Scan(&item.ID, &item.SignalID, &item.RuleName, &item.RuleVersion, &item.PolicyGeneration, &root, &item.Fingerprint, &conditions, &item.Reason, &item.DecidedAt); err != nil {
+			return nil, 0, err
+		}
+		item.RootResource, _ = SanitizeJSON(root)
+		if err := json.Unmarshal(conditions, &item.MatchedConditions); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
 type rowScanner interface{ Scan(...any) error }
 
 func scanIncident(row rowScanner) (IncidentView, error) {

@@ -55,6 +55,31 @@ type IncidentPage struct {
 type QueryStore interface {
 	List(context.Context, string, ListFilter) ([]IncidentView, int64, error)
 	Get(context.Context, string, int64) (*IncidentView, error)
+	Timeline(context.Context, string, int64, int, int) ([]TimelineView, int64, error)
+	Correlation(context.Context, string, int64, int, int) ([]CorrelationView, int64, error)
+}
+
+type TimelineView struct {
+	ID         int64          `json:"id"`
+	Type       string         `json:"type"`
+	Actor      string         `json:"actor"`
+	Message    string         `json:"message"`
+	Evidence   map[string]any `json:"evidence"`
+	Truncated  bool           `json:"truncated"`
+	OccurredAt time.Time      `json:"occurredAt"`
+}
+
+type CorrelationView struct {
+	ID                int64          `json:"id"`
+	SignalID          string         `json:"signalID"`
+	RuleName          string         `json:"ruleName"`
+	RuleVersion       string         `json:"ruleVersion"`
+	PolicyGeneration  int64          `json:"policyGeneration"`
+	RootResource      map[string]any `json:"rootResource"`
+	Fingerprint       string         `json:"fingerprint"`
+	MatchedConditions []string       `json:"matchedConditions"`
+	Reason            string         `json:"reason"`
+	DecidedAt         time.Time      `json:"decidedAt"`
 }
 
 type QueryService struct{ store QueryStore }

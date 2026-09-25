@@ -54,3 +54,35 @@ func (h *APIHandler) Get(c *gin.Context) {
 	c.Header("ETag", IncidentETag(item.ID, item.Version))
 	c.JSON(http.StatusOK, item)
 }
+
+func (h *APIHandler) Timeline(c *gin.Context)    { h.related(c, true) }
+func (h *APIHandler) Correlation(c *gin.Context) { h.related(c, false) }
+
+func (h *APIHandler) related(c *gin.Context, timeline bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id < 1 {
+		httpapi.WriteError(c, http.StatusBadRequest, "INVALID_INCIDENT_ID", "incident id must be a positive integer", nil)
+		return
+	}
+	filter, err := ParseListFilter(map[string][]string{"page": c.QueryArray("page"), "pageSize": c.QueryArray("pageSize")})
+	if err != nil {
+		httpapi.WriteError(c, http.StatusBadRequest, "INVALID_PAGINATION", err.Error(), nil)
+		return
+	}
+	var items any
+	var total int64
+	if timeline {
+		items, total, err = h.queries.store.Timeline(c.Request.Context(), c.GetString(middleware.TenantKey), id, filter.Page, filter.PageSize)
+	} else {
+		items, total, err = h.queries.store.Correlation(c.Request.Context(), c.GetString(middleware.TenantKey), id, filter.Page, filter.PageSize)
+	}
+	if errors.Is(err, ErrIncidentNotFound) {
+		httpapi.WriteError(c, http.StatusNotFound, "INCIDENT_NOT_FOUND", "incident was not found", nil)
+		return
+	}
+	if err != nil {
+		httpapi.WriteMappedError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, httpapi.Page{Items: items, Page: filter.Page, PageSize: filter.PageSize, Total: total})
+}

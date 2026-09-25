@@ -133,7 +133,6 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	incidentService := incident.NewService(incidentRepo, timelineRepo)
 	alertHandler := alert.NewHandler(alert.NewService(alertRepo))
 	incidentHandler := incident.NewAPIHandler(incident.NewQueryService(incident.NewPGQueryStore()))
-	timelineHandler := timeline.NewHandler(timeline.NewService(timelineRepo))
 	simulationHandler := correlationrules.NewSimulationHandler(correlationrules.NewSimulator(ruleRegistry, pipeline.NewRepository(repository.DB), 1000))
 
 	r := gin.Default()
@@ -156,7 +155,8 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	incidents.GET("", incidentHandler.List)
 	incidents.GET("/open", incidentHandler.ListOpen)
 	incidents.GET("/:id", incidentHandler.Get)
-	incidents.GET("/:id/timeline", timelineHandler.GetByIncident)
+	incidents.GET("/:id/timeline", incidentHandler.Timeline)
+	incidents.GET("/:id/correlation", incidentHandler.Correlation)
 	metrics := api.Group("/metrics")
 	metrics.GET("/query", metricsHandler.Query)
 	metrics.GET("/range", metricsHandler.Range)
