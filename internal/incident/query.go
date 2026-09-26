@@ -57,6 +57,7 @@ type QueryStore interface {
 	Get(context.Context, string, int64) (*IncidentView, error)
 	Timeline(context.Context, string, int64, int, int) ([]TimelineView, int64, error)
 	Correlation(context.Context, string, int64, int, int) ([]CorrelationView, int64, error)
+	Context(context.Context, string, int64) (*ContextV1, error)
 }
 
 type TimelineView struct {
@@ -101,6 +102,10 @@ func (s *QueryService) List(ctx context.Context, tenant string, filter ListFilte
 
 func (s *QueryService) Get(ctx context.Context, tenant string, id int64) (*IncidentView, error) {
 	return s.store.Get(ctx, tenant, id)
+}
+
+func (s *QueryService) Context(ctx context.Context, tenant string, id int64) (*ContextV1, error) {
+	return s.store.Context(ctx, tenant, id)
 }
 
 func ParseListFilter(values map[string][]string) (ListFilter, error) {

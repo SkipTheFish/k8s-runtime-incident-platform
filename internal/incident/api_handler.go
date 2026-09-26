@@ -58,6 +58,25 @@ func (h *APIHandler) Get(c *gin.Context) {
 func (h *APIHandler) Timeline(c *gin.Context)    { h.related(c, true) }
 func (h *APIHandler) Correlation(c *gin.Context) { h.related(c, false) }
 
+func (h *APIHandler) Context(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id < 1 {
+		httpapi.WriteError(c, http.StatusBadRequest, "INVALID_INCIDENT_ID", "incident id must be a positive integer", nil)
+		return
+	}
+	result, err := h.queries.Context(c.Request.Context(), c.GetString(middleware.TenantKey), id)
+	if errors.Is(err, ErrIncidentNotFound) {
+		httpapi.WriteError(c, http.StatusNotFound, "INCIDENT_NOT_FOUND", "incident was not found", nil)
+		return
+	}
+	if err != nil {
+		httpapi.WriteMappedError(c, err)
+		return
+	}
+	c.Header("ETag", IncidentETag(id, result.Revision))
+	c.JSON(http.StatusOK, result)
+}
+
 func (h *APIHandler) related(c *gin.Context, timeline bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id < 1 {

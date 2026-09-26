@@ -157,6 +157,7 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	incidents.GET("/:id", incidentHandler.Get)
 	incidents.GET("/:id/timeline", incidentHandler.Timeline)
 	incidents.GET("/:id/correlation", incidentHandler.Correlation)
+	incidents.GET("/:id/context", incidentHandler.Context)
 	metrics := api.Group("/metrics")
 	metrics.GET("/query", metricsHandler.Query)
 	metrics.GET("/range", metricsHandler.Range)
