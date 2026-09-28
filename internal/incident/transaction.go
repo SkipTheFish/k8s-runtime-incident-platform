@@ -59,6 +59,9 @@ func (s *TransactionService) applyTransitionOnce(ctx context.Context, incidentID
 	if err := tx.QueryRow(txCtx, `SELECT status,version FROM incidents WHERE id=$1 FOR UPDATE`, incidentID).Scan(&current, &version); err != nil {
 		return TransitionOutcome{}, err
 	}
+	if command.ExpectedVersion != nil && version != *command.ExpectedVersion {
+		return TransitionOutcome{}, &DomainError{Code: CodeVersionConflict, Message: "incident version does not match If-Match"}
+	}
 	transition, err := Transition(current, command)
 	if err != nil {
 		return TransitionOutcome{}, err

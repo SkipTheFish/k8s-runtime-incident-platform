@@ -73,14 +73,14 @@ func New(cfg *config.Config) (*App, error) {
 	readiness.SetMigrationsReady(true)
 
 	ruleRegistry := correlationrules.NewRegistry(correlationrules.BuiltInRules()...)
-	router, engine := buildRouter(cfg, readiness, ruleRegistry)
+	router, engine, incidentTransactions := buildRouter(cfg, readiness, ruleRegistry)
 	app := &App{cfg: cfg, server: &http.Server{Addr: fmt.Sprintf(":%d", cfg.App.Port), Handler: router}}
 	app.components = append(app.components, componentFunc{name: "alert engine", run: func(ctx context.Context) error {
 		engine.Start(ctx)
 		return nil
 	}})
 	if cfg.KubernetesEnabled {
-		components, err := kubernetesComponents(cfg, readiness, ruleRegistry)
+		components, err := kubernetesComponents(cfg, readiness, ruleRegistry, incidentTransactions)
 		if err != nil {
 			repository.DB.Close()
 			return nil, err
@@ -115,7 +115,7 @@ func (a *App) runHTTP(ctx context.Context) error {
 	}
 }
 
-func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry) (*gin.Engine, *alert.Engine) {
+func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry) (*gin.Engine, *alert.Engine, *incident.TransactionService) {
 	redisCache := cache.NewRedis(cfg.Redis.Addr)
 	queryCache := query.NewRedisQueryCache(redisCache)
 	promClient := prometheus.NewClient(cfg.PrometheusURL)
@@ -132,7 +132,8 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	timelineRepo := timeline.NewPGRepo()
 	incidentService := incident.NewService(incidentRepo, timelineRepo)
 	alertHandler := alert.NewHandler(alert.NewService(alertRepo))
-	incidentHandler := incident.NewAPIHandler(incident.NewQueryService(incident.NewPGQueryStore()))
+	incidentTransactions := incident.NewTransactionService(repository.DB, cfg.Postgres.Timeout).WithMetrics(incident.NewMetrics(prommetrics.DefaultRegisterer))
+	incidentHandler := incident.NewAPIHandler(incident.NewQueryService(incident.NewPGQueryStore()), incidentTransactions)
 	simulationHandler := correlationrules.NewSimulationHandler(correlationrules.NewSimulator(ruleRegistry, pipeline.NewRepository(repository.DB), 1000))
 
 	r := gin.Default()
@@ -158,15 +159,16 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	incidents.GET("/:id/timeline", incidentHandler.Timeline)
 	incidents.GET("/:id/correlation", incidentHandler.Correlation)
 	incidents.GET("/:id/context", incidentHandler.Context)
+	incidents.POST("/:id/acknowledge", incidentHandler.Acknowledge)
 	metrics := api.Group("/metrics")
 	metrics.GET("/query", metricsHandler.Query)
 	metrics.GET("/range", metricsHandler.Range)
 	metrics.GET("/golden-signals", metricsHandler.GoldenSignals)
 	metrics.GET("/labels", metricsHandler.Labels)
-	return r, alert.NewEngine(metricsService, alertRepo, incidentService)
+	return r, alert.NewEngine(metricsService, alertRepo, incidentService), incidentTransactions
 }
 
-func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry) ([]Component, error) {
+func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry, incidentTransactions *incident.TransactionService) ([]Component, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(obsv1.AddToScheme(scheme))
@@ -197,8 +199,7 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness, rule
 	signalRepo := pipeline.NewRepository(repository.DB)
 	graphHandler := pipeline.NewGraphHandler(signalRepo)
 	graphHandler.SetEvaluator(ruleRegistry)
-	incidentMetrics := incident.NewMetrics(prommetrics.DefaultRegisterer)
-	graphHandler.SetIncidentProcessor(incident.NewTransactionService(repository.DB, cfg.Postgres.Timeout).WithMetrics(incidentMetrics))
+	graphHandler.SetIncidentProcessor(incidentTransactions)
 	graphHandler.SetCorrelationMetrics(pipeline.NewCorrelationMetrics(prommetrics.DefaultRegisterer))
 	signalQueue := pipeline.NewQueue(pipeline.Config{Workers: cfg.SignalWorkers, MaxRetries: cfg.SignalMaxRetries, BaseDelay: cfg.SignalRetryBase, MaxDelay: cfg.SignalRetryMax}, graphHandler.Handle, func(ctx context.Context, item signal.Signal, cause error, attempts int) {
 		_ = signalRepo.MarkUnmatched(ctx, item.ID, cause.Error())

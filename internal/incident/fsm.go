@@ -17,6 +17,7 @@ type ErrorCode string
 const (
 	CodeInvalidTransition ErrorCode = "INCIDENT_INVALID_TRANSITION"
 	CodeInvalidCommand    ErrorCode = "INCIDENT_INVALID_COMMAND"
+	CodeVersionConflict   ErrorCode = "INCIDENT_VERSION_CONFLICT"
 )
 
 type DomainError struct {
@@ -32,10 +33,11 @@ func IsCode(err error, code ErrorCode) bool {
 }
 
 type TransitionCommand struct {
-	Target     IncidentStatus `json:"target"`
-	Actor      string         `json:"actor"`
-	Reason     string         `json:"reason"`
-	OccurredAt time.Time      `json:"occurredAt"`
+	Target          IncidentStatus `json:"target"`
+	Actor           string         `json:"actor"`
+	Reason          string         `json:"reason"`
+	OccurredAt      time.Time      `json:"occurredAt"`
+	ExpectedVersion *int64         `json:"-"`
 }
 
 type TransitionResult struct {

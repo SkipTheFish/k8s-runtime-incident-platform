@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	"observability-platform/internal/httpapi"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,21 +22,21 @@ func (h *SimulationHandler) Simulate(c *gin.Context) {
 	if err := c.ShouldBindJSON(&request); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "simulation request body exceeds limit"})
+			httpapi.WriteError(c, http.StatusRequestEntityTooLarge, "SIMULATION_BODY_TOO_LARGE", "simulation request body exceeds limit", nil)
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid simulation request"})
+		httpapi.WriteError(c, http.StatusBadRequest, "INVALID_SIMULATION_REQUEST", "invalid simulation request", nil)
 		return
 	}
 	result, err := h.simulator.Simulate(c.Request.Context(), c.Param("name"), request)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrSimulationLimit):
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": err.Error()})
+			httpapi.WriteError(c, http.StatusRequestEntityTooLarge, "SIMULATION_LIMIT_EXCEEDED", err.Error(), nil)
 		case errors.Is(err, ErrSimulationPolicyNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpapi.WriteError(c, http.StatusNotFound, "CORRELATION_POLICY_NOT_FOUND", err.Error(), nil)
 		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpapi.WriteError(c, http.StatusBadRequest, "SIMULATION_FAILED", err.Error(), nil)
 		}
 		return
 	}
