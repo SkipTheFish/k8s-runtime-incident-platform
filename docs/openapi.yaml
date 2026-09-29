@@ -1,0 +1,227 @@
+openapi: 3.0.3
+info:
+  title: Kubernetes Runtime Incident Platform API
+  version: 1.0.0
+  description: Single-tenant, read-mostly Incident Context API. Tenant identity is supplied by server configuration.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/incidents:
+    get:
+      operationId: listIncidents
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {type: string, enum: [open, acknowledged, resolved, reopened]}}
+        - {name: severity, in: query, schema: {type: string, enum: [info, warning, critical]}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        '200':
+          description: Bounded incident page
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IncidentPage'}
+        '400': {$ref: '#/components/responses/Error'}
+  /api/v1/incidents/{id}:
+    get:
+      operationId: getIncident
+      parameters: [{$ref: '#/components/parameters/IncidentID'}]
+      responses:
+        '200':
+          description: Incident detail. ETag is derived from version.
+          headers: {ETag: {$ref: '#/components/headers/ETag'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Incident'}}}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/incidents/{id}/timeline:
+    get:
+      operationId: getIncidentTimeline
+      parameters:
+        - $ref: '#/components/parameters/IncidentID'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Sanitized and bounded timeline page
+          content: {application/json: {schema: {$ref: '#/components/schemas/TimelinePage'}}}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/incidents/{id}/correlation:
+    get:
+      operationId: getIncidentCorrelation
+      parameters:
+        - $ref: '#/components/parameters/IncidentID'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Correlation decisions and explanations
+          content: {application/json: {schema: {$ref: '#/components/schemas/CorrelationPage'}}}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/incidents/{id}/context:
+    get:
+      operationId: getIncidentContext
+      parameters: [{$ref: '#/components/parameters/IncidentID'}]
+      responses:
+        '200':
+          description: Versioned, bounded and sanitized Incident Context v1
+          headers: {ETag: {$ref: '#/components/headers/ETag'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/ContextV1'}}}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/incidents/{id}/acknowledge:
+    post:
+      operationId: acknowledgeIncident
+      parameters:
+        - $ref: '#/components/parameters/IncidentID'
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string, example: '"incident-42-v3"'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AcknowledgeRequest'}
+            example: {actor: oncall@example.com, reason: Investigation started}
+      responses:
+        '200':
+          description: Acknowledged incident
+          headers: {ETag: {$ref: '#/components/headers/ETag'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/TransitionOutcome'}}}
+        '412': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/correlation-policies/{name}/simulate:
+    post:
+      operationId: simulateCorrelationPolicy
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SimulationRequest'}
+            example: {generation: 1, historicalSignalIds: []}
+      responses:
+        '200':
+          description: Dry-run result; no Incident is written
+          content: {application/json: {schema: {type: object}}}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+components:
+  parameters:
+    IncidentID: {name: id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+    Page: {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+    PageSize: {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+  headers:
+    ETag: {description: Incident revision ETag, schema: {type: string, example: '"incident-42-v3"'}}
+  responses:
+    Error:
+      description: Stable API error
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+  schemas:
+    Error:
+      type: object
+      required: [code, message, requestID]
+      properties:
+        code: {type: string, example: INCIDENT_NOT_FOUND}
+        message: {type: string}
+        requestID: {type: string}
+        details: {}
+    Incident:
+      type: object
+      required: [id, title, status, version, startedAt, updatedAt]
+      properties:
+        id: {type: integer, format: int64}
+        title: {type: string}
+        status: {type: string, enum: [open, acknowledged, resolved, reopened]}
+        severity: {type: string}
+        namespace: {type: string}
+        policy: {type: string}
+        category: {type: string}
+        fingerprint: {type: string}
+        rootResource: {type: object, additionalProperties: true}
+        startedAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        resolvedAt: {type: string, format: date-time, nullable: true}
+        acknowledgedAt: {type: string, format: date-time, nullable: true}
+        version: {type: integer, format: int64}
+        policyGeneration: {type: integer, format: int64}
+    IncidentPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties: {items: {type: array, items: {$ref: '#/components/schemas/Incident'}}}
+    Page:
+      type: object
+      required: [items, pageSize]
+      properties:
+        items: {type: array, items: {}}
+        nextCursor: {type: string}
+        page: {type: integer}
+        pageSize: {type: integer}
+        total: {type: integer, format: int64}
+    TimelineEntry:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        type: {type: string}
+        actor: {type: string}
+        message: {type: string}
+        evidence: {type: object, additionalProperties: true, description: "Sensitive fields are replaced with [REDACTED]."}
+        truncated: {type: boolean}
+        occurredAt: {type: string, format: date-time}
+    TimelinePage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties: {items: {type: array, items: {$ref: '#/components/schemas/TimelineEntry'}}}
+    CorrelationDecision:
+      type: object
+      properties:
+        signalID: {type: string}
+        ruleName: {type: string}
+        ruleVersion: {type: string}
+        policyGeneration: {type: integer, format: int64}
+        fingerprint: {type: string}
+        matchedConditions: {type: array, items: {type: string}}
+        reason: {type: string}
+    CorrelationPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties: {items: {type: array, items: {$ref: '#/components/schemas/CorrelationDecision'}}}
+    ContextV1:
+      type: object
+      required: [schema, revision, incident, rootResource, affectedResources, signals, timeline, evidence, correlationDecisions, rawDataLinks, truncated]
+      properties:
+        schema: {type: string, enum: [incident-context/v1]}
+        revision: {type: integer, format: int64}
+        incident: {$ref: '#/components/schemas/Incident'}
+        rootResource: {type: object, additionalProperties: true}
+        affectedResources: {type: array, maxItems: 100, items: {type: object}}
+        signals: {type: array, maxItems: 100, items: {type: object}}
+        timeline: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/TimelineEntry'}}
+        evidence: {type: array, maxItems: 100, items: {type: object}}
+        correlationDecisions: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/CorrelationDecision'}}
+        rawDataLinks: {type: array, maxItems: 100, items: {type: string}}
+        truncated: {type: object, additionalProperties: {type: boolean}}
+    AcknowledgeRequest:
+      type: object
+      required: [actor, reason]
+      properties: {actor: {type: string, minLength: 1}, reason: {type: string, minLength: 1}}
+    TransitionOutcome:
+      type: object
+      properties:
+        IncidentID: {type: integer, format: int64}
+        Status: {type: string}
+        Version: {type: integer, format: int64}
+        Changed: {type: boolean}
+    SimulationRequest:
+      type: object
+      properties:
+        generation: {type: integer, format: int64}
+        historicalSignalIds: {type: array, maxItems: 1000, items: {type: string}}
+        signals: {type: array, maxItems: 1000, items: {type: object}}

@@ -14,6 +14,7 @@ import (
 	"observability-platform/internal/database"
 	"observability-platform/internal/datasource/prometheus"
 	"observability-platform/internal/handler"
+	"observability-platform/internal/httpapi"
 	"observability-platform/internal/incident"
 	"observability-platform/internal/middleware"
 	"observability-platform/internal/operator"
@@ -151,15 +152,15 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	traces.GET("/search", tracesHandler.Search)
 	traces.GET("/:traceId", tracesHandler.GetTrace)
 	api.POST("/alerts/policy", alertHandler.CreatePolicy)
-	api.POST("/correlation-policies/:name/simulate", simulationHandler.Simulate)
+	r.POST(httpapi.PolicySimulationPath, middleware.TenantMiddleware(cfg.TenantID), simulationHandler.Simulate)
 	incidents := api.Group("/incidents")
-	incidents.GET("", incidentHandler.List)
+	r.GET(httpapi.IncidentsPath, middleware.TenantMiddleware(cfg.TenantID), incidentHandler.List)
 	incidents.GET("/open", incidentHandler.ListOpen)
-	incidents.GET("/:id", incidentHandler.Get)
-	incidents.GET("/:id/timeline", incidentHandler.Timeline)
-	incidents.GET("/:id/correlation", incidentHandler.Correlation)
-	incidents.GET("/:id/context", incidentHandler.Context)
-	incidents.POST("/:id/acknowledge", incidentHandler.Acknowledge)
+	r.GET(httpapi.IncidentPath, middleware.TenantMiddleware(cfg.TenantID), incidentHandler.Get)
+	r.GET(httpapi.IncidentTimelinePath, middleware.TenantMiddleware(cfg.TenantID), incidentHandler.Timeline)
+	r.GET(httpapi.IncidentCorrelationPath, middleware.TenantMiddleware(cfg.TenantID), incidentHandler.Correlation)
+	r.GET(httpapi.IncidentContextPath, middleware.TenantMiddleware(cfg.TenantID), incidentHandler.Context)
+	r.POST(httpapi.IncidentAcknowledgePath, middleware.TenantMiddleware(cfg.TenantID), incidentHandler.Acknowledge)
 	metrics := api.Group("/metrics")
 	metrics.GET("/query", metricsHandler.Query)
 	metrics.GET("/range", metricsHandler.Range)
