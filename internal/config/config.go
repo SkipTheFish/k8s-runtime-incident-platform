@@ -34,11 +34,16 @@ type Config struct {
 	HTTPRequestTimeout time.Duration
 	HTTPMaxBodyBytes   int
 	WebhookWorkers     int
-	SignalWorkers      int
-	SignalMaxRetries   int
-	SignalRetryBase    time.Duration
-	SignalRetryMax     time.Duration
-	ResourceGraph      struct {
+	Webhook            struct {
+		TargetName string
+		URL        string
+		Secret     string
+	}
+	SignalWorkers    int
+	SignalMaxRetries int
+	SignalRetryBase  time.Duration
+	SignalRetryMax   time.Duration
+	ResourceGraph    struct {
 		Retention       time.Duration
 		CleanupInterval time.Duration
 		CleanupTimeout  time.Duration
@@ -121,6 +126,17 @@ func load(get func(string) string) (*Config, error) {
 	}
 	if cfg.WebhookWorkers, err = parseInt("WEBHOOK_WORKERS", get("WEBHOOK_WORKERS"), 2, 1, 64); err != nil {
 		return nil, err
+	}
+	cfg.Webhook.TargetName = valueOrDefault(get("WEBHOOK_TARGET_NAME"), "incident-agent")
+	cfg.Webhook.URL = strings.TrimSpace(get("WEBHOOK_URL"))
+	cfg.Webhook.Secret = get("WEBHOOK_SECRET")
+	if cfg.Webhook.URL != "" {
+		if _, err := parseHTTPURL("WEBHOOK_URL", cfg.Webhook.URL, ""); err != nil {
+			return nil, err
+		}
+		if cfg.Webhook.Secret == "" {
+			return nil, fieldError("WEBHOOK_SECRET", "is required when WEBHOOK_URL is configured")
+		}
 	}
 	if cfg.SignalWorkers, err = parseInt("SIGNAL_WORKERS", get("SIGNAL_WORKERS"), 2, 1, 64); err != nil {
 		return nil, err
