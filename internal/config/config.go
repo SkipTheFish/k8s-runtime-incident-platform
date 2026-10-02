@@ -38,6 +38,7 @@ type Config struct {
 		TargetName string
 		URL        string
 		Secret     string
+		Allowlist  []string
 	}
 	SignalWorkers    int
 	SignalMaxRetries int
@@ -130,6 +131,13 @@ func load(get func(string) string) (*Config, error) {
 	cfg.Webhook.TargetName = valueOrDefault(get("WEBHOOK_TARGET_NAME"), "incident-agent")
 	cfg.Webhook.URL = strings.TrimSpace(get("WEBHOOK_URL"))
 	cfg.Webhook.Secret = get("WEBHOOK_SECRET")
+	if raw := strings.TrimSpace(get("WEBHOOK_ALLOWLIST")); raw != "" {
+		for _, entry := range strings.Split(raw, ",") {
+			if entry = strings.TrimSpace(entry); entry != "" {
+				cfg.Webhook.Allowlist = append(cfg.Webhook.Allowlist, entry)
+			}
+		}
+	}
 	if cfg.Webhook.URL != "" {
 		if _, err := parseHTTPURL("WEBHOOK_URL", cfg.Webhook.URL, ""); err != nil {
 			return nil, err

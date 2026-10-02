@@ -25,6 +25,13 @@ func NewClient(url, secret string, httpClient *http.Client) *Client {
 	return &Client{url: url, signer: NewSigner(secret), httpClient: httpClient, now: time.Now}
 }
 
+func NewSecureClient(rawURL, secret string, policy *NetworkPolicy, connectTimeout, requestTimeout time.Duration) (*Client, error) {
+	if _, err := policy.ValidateURL(rawURL); err != nil {
+		return nil, err
+	}
+	return NewClient(rawURL, secret, policy.HTTPClient(connectTimeout, requestTimeout)), nil
+}
+
 func (c *Client) Deliver(ctx context.Context, event outbox.Event) error {
 	now := c.now().UTC()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(event.Payload))
