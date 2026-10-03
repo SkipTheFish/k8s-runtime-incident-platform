@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"observability-platform/internal/outbox"
@@ -17,6 +19,21 @@ type Client struct {
 	httpClient *http.Client
 	now        func() time.Time
 }
+
+type DeliveryError struct {
+	retryable  bool
+	status     int
+	summary    string
+	retryAfter time.Duration
+}
+
+func (e *DeliveryError) Error() string {
+	return fmt.Sprintf("webhook delivery failed with HTTP %d", e.status)
+}
+func (e *DeliveryError) Retryable() bool           { return e.retryable }
+func (e *DeliveryError) HTTPStatus() int           { return e.status }
+func (e *DeliveryError) ResponseSummary() string   { return e.summary }
+func (e *DeliveryError) RetryAfter() time.Duration { return e.retryAfter }
 
 func NewClient(url, secret string, httpClient *http.Client) *Client {
 	if httpClient == nil {
@@ -48,7 +65,47 @@ func (c *Client) Deliver(ctx context.Context, event outbox.Event) error {
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("webhook returned HTTP %d", response.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4097))
+		return &DeliveryError{retryable: response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500, status: response.StatusCode, summary: sanitizeResponse(string(body)), retryAfter: ParseRetryAfter(response.Header.Get("Retry-After"), now, time.Minute)}
 	}
 	return nil
+}
+
+func ParseRetryAfter(value string, now time.Time, maximum time.Duration) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds < 0 {
+			return 0
+		}
+		delay := time.Duration(seconds) * time.Second
+		if delay > maximum {
+			return maximum
+		}
+		return delay
+	}
+	when, err := http.ParseTime(value)
+	if err != nil || !when.After(now) {
+		return 0
+	}
+	delay := when.Sub(now)
+	if delay > maximum {
+		return maximum
+	}
+	return delay
+}
+
+func sanitizeResponse(value string) string {
+	if len(value) > 4096 {
+		value = value[:4096] + "...[TRUNCATED]"
+	}
+	lower := strings.ToLower(value)
+	for _, key := range []string{"authorization", "password", "passwd", "secret", "token"} {
+		if strings.Contains(lower, key) {
+			return "[REDACTED RESPONSE BODY]"
+		}
+	}
+	return value
 }

@@ -35,10 +35,17 @@ type Config struct {
 	HTTPMaxBodyBytes   int
 	WebhookWorkers     int
 	Webhook            struct {
-		TargetName string
-		URL        string
-		Secret     string
-		Allowlist  []string
+		TargetName     string
+		URL            string
+		Secret         string
+		Allowlist      []string
+		ConnectTimeout time.Duration
+		RequestTimeout time.Duration
+		PollInterval   time.Duration
+		RetryBase      time.Duration
+		RetryMax       time.Duration
+		MaxAttempts    int
+		BatchSize      int
 	}
 	SignalWorkers    int
 	SignalMaxRetries int
@@ -145,6 +152,27 @@ func load(get func(string) string) (*Config, error) {
 		if cfg.Webhook.Secret == "" {
 			return nil, fieldError("WEBHOOK_SECRET", "is required when WEBHOOK_URL is configured")
 		}
+	}
+	if cfg.Webhook.ConnectTimeout, err = parseDuration("WEBHOOK_CONNECT_TIMEOUT", get("WEBHOOK_CONNECT_TIMEOUT"), 3*time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.Webhook.RequestTimeout, err = parseDuration("WEBHOOK_REQUEST_TIMEOUT", get("WEBHOOK_REQUEST_TIMEOUT"), 10*time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.Webhook.PollInterval, err = parseDuration("WEBHOOK_POLL_INTERVAL", get("WEBHOOK_POLL_INTERVAL"), time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.Webhook.RetryBase, err = parseDuration("WEBHOOK_RETRY_BASE", get("WEBHOOK_RETRY_BASE"), time.Second); err != nil {
+		return nil, err
+	}
+	if cfg.Webhook.RetryMax, err = parseDuration("WEBHOOK_RETRY_MAX", get("WEBHOOK_RETRY_MAX"), time.Minute); err != nil {
+		return nil, err
+	}
+	if cfg.Webhook.MaxAttempts, err = parseInt("WEBHOOK_MAX_ATTEMPTS", get("WEBHOOK_MAX_ATTEMPTS"), 5, 1, 100); err != nil {
+		return nil, err
+	}
+	if cfg.Webhook.BatchSize, err = parseInt("WEBHOOK_BATCH_SIZE", get("WEBHOOK_BATCH_SIZE"), 20, 1, 1000); err != nil {
+		return nil, err
 	}
 	if cfg.SignalWorkers, err = parseInt("SIGNAL_WORKERS", get("SIGNAL_WORKERS"), 2, 1, 64); err != nil {
 		return nil, err

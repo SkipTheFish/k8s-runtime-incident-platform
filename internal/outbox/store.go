@@ -83,3 +83,40 @@ func (s *Store) PendingCount(ctx context.Context) (int64, error) {
 	err := s.db.QueryRow(ctx, `SELECT count(*) FROM outbox_events WHERE status IN ('pending','delivering')`).Scan(&count)
 	return count, err
 }
+
+func (s *Store) RecordAttempt(ctx context.Context, event Event, targetName, deliveryStatus string, responseStatus int, summary string, next time.Time, deadLetter bool) error {
+	if len(summary) > 1024 {
+		summary = summary[:1024]
+	}
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var response any
+	if responseStatus > 0 {
+		response = responseStatus
+	}
+	var nextValue any
+	if !next.IsZero() {
+		nextValue = next
+	}
+	if deadLetter {
+		deliveryStatus = "failed"
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO webhook_deliveries(event_id,attempt,target_name,status,response_status,error_summary,next_attempt_at,finished_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()) ON CONFLICT(event_id,attempt) DO NOTHING`, event.EventID, event.Attempt, targetName, deliveryStatus, response, summary, nextValue)
+	if err != nil {
+		return err
+	}
+	if deliveryStatus == "succeeded" {
+		_, err = tx.Exec(ctx, `UPDATE outbox_events SET status='delivered',delivered_at=now(),updated_at=now(),last_error='' WHERE event_id=$1 AND status='delivering'`, event.EventID)
+	} else if deadLetter {
+		_, err = tx.Exec(ctx, `UPDATE outbox_events SET status='dead_letter',updated_at=now(),last_error=$2 WHERE event_id=$1 AND status='delivering'`, event.EventID, summary)
+	} else {
+		_, err = tx.Exec(ctx, `UPDATE outbox_events SET status='pending',next_attempt_at=$2,updated_at=now(),last_error=$3 WHERE event_id=$1 AND status='delivering'`, event.EventID, next, summary)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

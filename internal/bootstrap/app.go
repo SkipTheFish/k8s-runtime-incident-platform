@@ -18,6 +18,7 @@ import (
 	"observability-platform/internal/incident"
 	"observability-platform/internal/middleware"
 	"observability-platform/internal/operator"
+	"observability-platform/internal/outbox"
 	"observability-platform/internal/pipeline"
 	"observability-platform/internal/query"
 	logsquery "observability-platform/internal/query/logs"
@@ -35,6 +36,7 @@ import (
 	runtimeline "observability-platform/internal/runtime/timeline"
 	"observability-platform/internal/signal"
 	"observability-platform/internal/timeline"
+	"observability-platform/internal/webhook"
 
 	"github.com/gin-gonic/gin"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -80,6 +82,20 @@ func New(cfg *config.Config) (*App, error) {
 		engine.Start(ctx)
 		return nil
 	}})
+	if cfg.Webhook.URL != "" {
+		policy, err := webhook.NewNetworkPolicy(cfg.Webhook.Allowlist)
+		if err != nil {
+			repository.DB.Close()
+			return nil, fmt.Errorf("configure webhook network policy: %w", err)
+		}
+		client, err := webhook.NewSecureClient(cfg.Webhook.URL, cfg.Webhook.Secret, policy, cfg.Webhook.ConnectTimeout, cfg.Webhook.RequestTimeout)
+		if err != nil {
+			repository.DB.Close()
+			return nil, fmt.Errorf("configure webhook client: %w", err)
+		}
+		dispatcher := outbox.NewDispatcher(outbox.NewStore(repository.DB), client, outbox.Config{BatchSize: cfg.Webhook.BatchSize, PollInterval: cfg.Webhook.PollInterval, Lease: 3 * cfg.Webhook.RequestTimeout, DeliveryTimeout: cfg.Webhook.RequestTimeout, TargetName: cfg.Webhook.TargetName, MaxAttempts: cfg.Webhook.MaxAttempts, BaseDelay: cfg.Webhook.RetryBase, MaxDelay: cfg.Webhook.RetryMax})
+		app.components = append(app.components, componentFunc{name: "outbox dispatcher", run: dispatcher.Run})
+	}
 	if cfg.KubernetesEnabled {
 		components, err := kubernetesComponents(cfg, readiness, ruleRegistry, incidentTransactions)
 		if err != nil {
