@@ -33,6 +33,7 @@ type Config struct {
 	KubernetesEnabled  bool
 	HTTPRequestTimeout time.Duration
 	HTTPMaxBodyBytes   int
+	AdminToken         string
 	WebhookWorkers     int
 	Webhook            struct {
 		TargetName     string
@@ -129,6 +130,7 @@ func load(get func(string) string) (*Config, error) {
 	if cfg.HTTPMaxBodyBytes, err = parseInt("HTTP_MAX_BODY_BYTES", get("HTTP_MAX_BODY_BYTES"), 1<<20, 1024, 16<<20); err != nil {
 		return nil, err
 	}
+	cfg.AdminToken = get("ADMIN_TOKEN")
 	if cfg.KubernetesEnabled, err = parseBool("KUBERNETES_ENABLED", get("KUBERNETES_ENABLED"), true); err != nil {
 		return nil, err
 	}
