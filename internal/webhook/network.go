@@ -100,7 +100,7 @@ func safePublicIP(ip netip.Addr) bool {
 
 func (p *NetworkPolicy) HTTPClient(connectTimeout, requestTimeout time.Duration) *http.Client {
 	dialer := &net.Dialer{Timeout: connectTimeout, KeepAlive: 30 * time.Second}
-	transport := &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
 			return nil, ErrTargetDenied

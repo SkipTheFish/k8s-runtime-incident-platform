@@ -56,6 +56,9 @@ func TestNetworkPolicyRejectsMixedDNSAndAllowsExplicitInternalTarget(t *testing.
 func TestRedirectsAreNotFollowed(t *testing.T) {
 	policy, _ := NewNetworkPolicy(nil)
 	client := policy.HTTPClient(0, 0)
+	if client.Transport.(*http.Transport).Proxy != nil {
+		t.Fatal("secure webhook transport must not delegate target validation to an environment proxy")
+	}
 	request := &http.Request{URL: &url.URL{Scheme: "https", Host: "example.com"}}
 	if err := client.CheckRedirect(request, []*http.Request{{}}); !errors.Is(err, http.ErrUseLastResponse) {
 		t.Fatalf("err=%v", err)

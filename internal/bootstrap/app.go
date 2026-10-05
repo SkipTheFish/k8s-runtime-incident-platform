@@ -76,7 +76,7 @@ func New(cfg *config.Config) (*App, error) {
 	readiness.SetMigrationsReady(true)
 
 	ruleRegistry := correlationrules.NewRegistry(correlationrules.BuiltInRules()...)
-	router, engine, incidentTransactions := buildRouter(cfg, readiness, ruleRegistry)
+	router, engine, incidentTransactions, outboxMetrics := buildRouter(cfg, readiness, ruleRegistry)
 	app := &App{cfg: cfg, server: &http.Server{Addr: fmt.Sprintf(":%d", cfg.App.Port), Handler: router}}
 	app.components = append(app.components, componentFunc{name: "alert engine", run: func(ctx context.Context) error {
 		engine.Start(ctx)
@@ -93,7 +93,7 @@ func New(cfg *config.Config) (*App, error) {
 			repository.DB.Close()
 			return nil, fmt.Errorf("configure webhook client: %w", err)
 		}
-		dispatcher := outbox.NewDispatcher(outbox.NewStore(repository.DB), client, outbox.Config{BatchSize: cfg.Webhook.BatchSize, PollInterval: cfg.Webhook.PollInterval, Lease: 3 * cfg.Webhook.RequestTimeout, DeliveryTimeout: cfg.Webhook.RequestTimeout, TargetName: cfg.Webhook.TargetName, MaxAttempts: cfg.Webhook.MaxAttempts, BaseDelay: cfg.Webhook.RetryBase, MaxDelay: cfg.Webhook.RetryMax})
+		dispatcher := outbox.NewDispatcher(outbox.NewStore(repository.DB), client, outbox.Config{BatchSize: cfg.Webhook.BatchSize, PollInterval: cfg.Webhook.PollInterval, Lease: 3 * cfg.Webhook.RequestTimeout, DeliveryTimeout: cfg.Webhook.RequestTimeout, TargetName: cfg.Webhook.TargetName, MaxAttempts: cfg.Webhook.MaxAttempts, BaseDelay: cfg.Webhook.RetryBase, MaxDelay: cfg.Webhook.RetryMax}).WithMetrics(outboxMetrics)
 		app.components = append(app.components, componentFunc{name: "outbox dispatcher", run: dispatcher.Run})
 	}
 	if cfg.KubernetesEnabled {
@@ -132,7 +132,7 @@ func (a *App) runHTTP(ctx context.Context) error {
 	}
 }
 
-func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry) (*gin.Engine, *alert.Engine, *incident.TransactionService) {
+func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry) (*gin.Engine, *alert.Engine, *incident.TransactionService, *outbox.Metrics) {
 	redisCache := cache.NewRedis(cfg.Redis.Addr)
 	queryCache := query.NewRedisQueryCache(redisCache)
 	promClient := prometheus.NewClient(cfg.PrometheusURL)
@@ -159,7 +159,9 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	r.GET("/livez", readiness.Live)
 	r.GET("/readyz", readiness.Ready)
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
-	adminOutbox := outbox.NewAdminHandler(outbox.NewStore(repository.DB))
+	outboxStore := outbox.NewStore(repository.DB)
+	outboxMetrics := outbox.NewMetrics(prommetrics.DefaultRegisterer, outboxStore.PendingCount)
+	adminOutbox := outbox.NewAdminHandler(outboxStore, outboxMetrics)
 	admin := r.Group("/api/v1/admin", middleware.TenantMiddleware(cfg.TenantID), middleware.AdminToken(cfg.AdminToken))
 	admin.GET("/outbox/dead-letters", adminOutbox.List)
 	admin.POST("/outbox/dead-letters/:eventID/replay", adminOutbox.Replay)
@@ -186,7 +188,7 @@ func buildRouter(cfg *config.Config, readiness *handler.Readiness, ruleRegistry 
 	metrics.GET("/range", metricsHandler.Range)
 	metrics.GET("/golden-signals", metricsHandler.GoldenSignals)
 	metrics.GET("/labels", metricsHandler.Labels)
-	return r, alert.NewEngine(metricsService, alertRepo, incidentService), incidentTransactions
+	return r, alert.NewEngine(metricsService, alertRepo, incidentService), incidentTransactions, outboxMetrics
 }
 
 func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness, ruleRegistry *correlationrules.Registry, incidentTransactions *incident.TransactionService) ([]Component, error) {

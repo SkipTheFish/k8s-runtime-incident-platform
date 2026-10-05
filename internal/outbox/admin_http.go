@@ -11,9 +11,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type AdminHandler struct{ store *Store }
+type AdminHandler struct {
+	store   *Store
+	metrics *Metrics
+}
 
-func NewAdminHandler(store *Store) *AdminHandler { return &AdminHandler{store: store} }
+func NewAdminHandler(store *Store, metrics ...*Metrics) *AdminHandler {
+	handler := &AdminHandler{store: store}
+	if len(metrics) > 0 {
+		handler.metrics = metrics[0]
+	}
+	return handler
+}
 
 func (h *AdminHandler) List(c *gin.Context) {
 	page, pageSize := 1, 50
@@ -63,5 +72,6 @@ func (h *AdminHandler) Replay(c *gin.Context) {
 		httpapi.WriteMappedError(c, err)
 		return
 	}
+	h.metrics.replay()
 	c.JSON(http.StatusOK, audit)
 }

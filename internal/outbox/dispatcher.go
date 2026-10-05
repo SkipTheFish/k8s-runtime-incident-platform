@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -32,7 +33,10 @@ type Dispatcher struct {
 	config    Config
 	now       func() time.Time
 	random    func() float64
+	metrics   *Metrics
 }
+
+func (d *Dispatcher) WithMetrics(metrics *Metrics) *Dispatcher { d.metrics = metrics; return d }
 
 func NewDispatcher(store *Store, deliverer Deliverer, config Config) *Dispatcher {
 	if config.BatchSize < 1 {
@@ -83,6 +87,7 @@ func (d *Dispatcher) ProcessOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	for _, event := range events {
+		started := d.now()
 		deliveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.config.DeliveryTimeout)
 		if len(event.Payload) > MaxPayloadBytes {
 			err = fmt.Errorf("outbox payload exceeds %d bytes", MaxPayloadBytes)
@@ -97,8 +102,16 @@ func (d *Dispatcher) ProcessOnce(ctx context.Context) (int, error) {
 			if recordErr := d.store.RecordAttempt(context.WithoutCancel(ctx), event, d.config.TargetName, "retryable", status, summary, next, deadLetter); recordErr != nil {
 				return 0, recordErr
 			}
+			outcome := "retry"
+			if deadLetter {
+				outcome = "dead_letter"
+			}
+			d.metrics.observe(outcome, d.now().Sub(started))
+			slog.Warn("webhook delivery completed", "eventID", event.EventID, "incidentID", event.IncidentID, "attempt", event.Attempt, "target", d.config.TargetName, "outcome", outcome)
 			continue
 		}
+		d.metrics.observe("success", d.now().Sub(started))
+		slog.Info("webhook delivery completed", "eventID", event.EventID, "incidentID", event.IncidentID, "attempt", event.Attempt, "target", d.config.TargetName, "outcome", "success")
 		if err := d.store.RecordAttempt(context.WithoutCancel(ctx), event, d.config.TargetName, "succeeded", 0, "", time.Time{}, false); err != nil {
 			return 0, err
 		}
@@ -116,6 +129,9 @@ func (d *Dispatcher) backoff(attempt int, retryAfter time.Duration) time.Duratio
 	shift := attempt - 1
 	if shift < 0 {
 		shift = 0
+	}
+	if shift > 30 {
+		shift = 30
 	}
 	delay := d.config.BaseDelay << shift
 	if delay > d.config.MaxDelay {
