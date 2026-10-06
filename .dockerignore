@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+runtime-console/node_modules
+runtime-console/dist
+coverage.out
+server
+deploy/tmp
+hack/tmp
+*.log
+docs
+pic
