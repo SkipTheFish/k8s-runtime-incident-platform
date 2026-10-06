@@ -1,0 +1,6 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: runtime-incident-platform
+    static_configs:
+      - targets: [runtime-incident-platform-backend:8080]
