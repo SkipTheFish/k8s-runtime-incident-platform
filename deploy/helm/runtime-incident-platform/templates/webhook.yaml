@@ -1,0 +1,24 @@
+{{- if .Values.webhook.enabled }}
+{{- $ca := required "webhook.caBundle is required when webhook is enabled" .Values.webhook.caBundle }}
+{{- range $hook := list (dict "kind" "MutatingWebhookConfiguration" "name" "alertpolicy-mutate" "path" "/mutate-observability-io-v1-alertpolicy" "operations" (list "CREATE" "UPDATE") "resource" "alertpolicies") (dict "kind" "ValidatingWebhookConfiguration" "name" "alertpolicy-validate" "path" "/validate-observability-io-v1-alertpolicy" "operations" (list "CREATE" "UPDATE" "DELETE") "resource" "alertpolicies") (dict "kind" "ValidatingWebhookConfiguration" "name" "correlationpolicy-validate" "path" "/validate-observability-io-v1-correlationpolicy" "operations" (list "CREATE" "UPDATE") "resource" "correlationpolicies") }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: {{ $hook.kind }}
+metadata:
+  name: {{ include "runtime-incident-platform.fullname" $ }}-{{ $hook.name }}
+  labels: {{- include "runtime-incident-platform.labels" $ | nindent 4 }}
+webhooks:
+  - name: {{ $hook.name }}.observability.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      caBundle: {{ $ca | quote }}
+      service: {name: runtime-incident-platform-backend, namespace: {{ $.Release.Namespace }}, path: {{ $hook.path }}, port: 443}
+    rules:
+      - apiGroups: [observability.io]
+        apiVersions: [v1]
+        operations: {{ toJson $hook.operations }}
+        resources: [{{ $hook.resource }}]
+{{- end }}
+{{- end }}

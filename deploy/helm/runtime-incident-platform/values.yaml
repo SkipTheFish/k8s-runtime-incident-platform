@@ -32,6 +32,11 @@ webhook:
   enabled: false
   existingSecret: ""
   secretKey: secret
+  tlsSecret: ""
+  caBundle: ""
+serviceMonitor:
+  enabled: false
+  interval: 30s
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
