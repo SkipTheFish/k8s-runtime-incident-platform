@@ -1,0 +1,3 @@
+The chart references an existing Secret and never stores database credentials in values.
+Access the console with:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "runtime-incident-platform.fullname" . }}-frontend 8081:{{ .Values.frontend.service.port }}

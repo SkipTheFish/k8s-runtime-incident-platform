@@ -1,0 +1,38 @@
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+serviceAccount:
+  create: true
+  name: ""
+backend:
+  replicaCount: 1
+  image: {repository: runtime-incident-platform-backend, tag: local, pullPolicy: IfNotPresent}
+  service: {port: 8080}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+frontend:
+  replicaCount: 1
+  image: {repository: runtime-incident-platform-frontend, tag: local, pullPolicy: IfNotPresent}
+  service: {type: ClusterIP, port: 80}
+  resources:
+    requests: {cpu: 25m, memory: 32Mi}
+    limits: {cpu: 200m, memory: 128Mi}
+config:
+  clusterId: kind-demo
+  kubernetesEnabled: true
+  redisAddr: redis:6379
+  prometheusUrl: http://prometheus:9090
+  lokiUrl: http://loki:3100
+  tempoUrl: http://tempo:3200
+postgres:
+  existingSecret: runtime-incident-platform-database
+  dsnKey: dsn
+webhook:
+  enabled: false
+  existingSecret: ""
+  secretKey: secret
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

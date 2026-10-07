@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "runtime-incident-platform.fullname" . }}-backend
+  labels: {{- include "runtime-incident-platform.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ include "runtime-incident-platform.name" . }}, app.kubernetes.io/component: backend}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: {{ include "runtime-incident-platform.name" . }}, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: backend}
+      annotations: {{- toYaml .Values.podAnnotations | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "runtime-incident-platform.serviceAccountName" . }}
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          envFrom: [{configMapRef: {name: {{ include "runtime-incident-platform.fullname" . }}}}]
+          env:
+            - name: POSTGRES_DSN
+              valueFrom: {secretKeyRef: {name: {{ required "postgres.existingSecret is required" .Values.postgres.existingSecret }}, key: {{ .Values.postgres.dsnKey }}}}
+            {{- if .Values.webhook.enabled }}
+            - name: WEBHOOK_SECRET
+              valueFrom: {secretKeyRef: {name: {{ required "webhook.existingSecret is required when webhook is enabled" .Values.webhook.existingSecret }}, key: {{ .Values.webhook.secretKey }}}}
+            {{- end }}
+          ports: [{name: http, containerPort: 8080}, {name: webhook, containerPort: 9443}]
+          startupProbe: {httpGet: {path: /livez, port: http}, failureThreshold: 30, periodSeconds: 2}
+          livenessProbe: {httpGet: {path: /livez, port: http}, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 5}
+          resources: {{- toYaml .Values.backend.resources | nindent 12 }}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations: {{- toYaml .Values.tolerations | nindent 8 }}
+      affinity: {{- toYaml .Values.affinity | nindent 8 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "runtime-incident-platform.fullname" . }}-frontend
+  labels: {{- include "runtime-incident-platform.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ include "runtime-incident-platform.name" . }}, app.kubernetes.io/component: frontend}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: {{ include "runtime-incident-platform.name" . }}, app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: frontend}
+    spec:
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /, port: http}}
+          livenessProbe: {httpGet: {path: /, port: http}}
+          resources: {{- toYaml .Values.frontend.resources | nindent 12 }}
+          volumeMounts: [{name: cache, mountPath: /var/cache/nginx}, {name: tmp, mountPath: /tmp}]
+      volumes: [{name: cache, emptyDir: {}}, {name: tmp, emptyDir: {}}]
