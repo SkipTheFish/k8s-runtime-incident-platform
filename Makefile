@@ -18,3 +18,13 @@ migrate-status:
 
 test-migrations:
 	pwsh -NoProfile -File hack/test-migrations.ps1
+
+.PHONY: demo demo-clean demo-verify
+demo:
+	pwsh -NoProfile -File hack/demo.ps1
+
+demo-verify:
+	pwsh -NoProfile -File hack/demo.ps1 -SkipBuild
+
+demo-clean:
+	pwsh -NoProfile -File hack/demo-clean.ps1
