@@ -34,6 +34,9 @@ webhook:
   secretKey: secret
   tlsSecret: ""
   caBundle: ""
+  url: ""
+  allowlist: ""
+  targetName: incident-agent
 serviceMonitor:
   enabled: false
   interval: 30s

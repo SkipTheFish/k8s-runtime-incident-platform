@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: webhook-receiver}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: webhook-receiver}}
+  template:
+    metadata: {labels: {app: webhook-receiver}}
+    spec:
+      containers:
+        - name: receiver
+          image: mendhak/http-https-echo:37
+          env: [{name: HTTP_PORT, value: "8080"}]
+          ports: [{containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: webhook-receiver}
+spec:
+  selector: {app: webhook-receiver}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: webhook-receiver}
+spec:
+  podSelector: {matchLabels: {app: webhook-receiver}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: backend}}
+      ports: [{protocol: TCP, port: 8080}]

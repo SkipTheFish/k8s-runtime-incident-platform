@@ -11,3 +11,6 @@ data:
   PROMETHEUS_URL: {{ .Values.config.prometheusUrl | quote }}
   LOKI_URL: {{ .Values.config.lokiUrl | quote }}
   TEMPO_URL: {{ .Values.config.tempoUrl | quote }}
+  WEBHOOK_URL: {{ .Values.webhook.url | quote }}
+  WEBHOOK_ALLOWLIST: {{ .Values.webhook.allowlist | quote }}
+  WEBHOOK_TARGET_NAME: {{ .Values.webhook.targetName | quote }}

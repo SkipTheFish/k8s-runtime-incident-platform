@@ -1,0 +1,44 @@
+apiVersion: observability.io/v1
+kind: CorrelationPolicy
+metadata: {name: image-pull, namespace: incident-demo}
+spec:
+  enabled: true
+  sources: [Kubernetes]
+  eventReasons: [Failed]
+  namespaces: [incident-demo]
+  groupBy: [rootResourceUID, container]
+  window: 10m
+  reopenWindow: 30m
+  severity: warning
+  priority: 300
+  explain: true
+---
+apiVersion: observability.io/v1
+kind: CorrelationPolicy
+metadata: {name: crash-loop, namespace: incident-demo}
+spec:
+  enabled: true
+  sources: [Kubernetes]
+  eventReasons: [BackOff]
+  namespaces: [incident-demo]
+  groupBy: [rootResourceUID, container]
+  window: 10m
+  reopenWindow: 30m
+  severity: critical
+  priority: 200
+  explain: true
+---
+apiVersion: observability.io/v1
+kind: CorrelationPolicy
+metadata: {name: failed-scheduling, namespace: incident-demo}
+spec:
+  enabled: true
+  sources: [Kubernetes]
+  eventReasons: [FailedScheduling]
+  namespaces: [incident-demo]
+  groupBy: [rootResourceUID]
+  window: 10m
+  reopenWindow: 30m
+  severity: warning
+  priority: 100
+  explain: true

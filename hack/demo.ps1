@@ -28,6 +28,7 @@ if (-not $SkipBuild) {
     docker build -t runtime-incident-platform-frontend:local (Join-Path $root 'runtime-console')
 }
 kind load docker-image --name $ClusterName runtime-incident-platform-backend:local runtime-incident-platform-frontend:local
-helm upgrade --install krip $chart --kube-context $context --namespace $namespace --set webhook.enabled=true --set webhook.existingSecret=runtime-incident-platform-webhook --set webhook.tlsSecret=runtime-incident-platform-webhook-tls --set-string webhook.caBundle=$caBundle --wait --timeout 5m
+kubectl --context $context -n $namespace apply -f (Join-Path $root 'deploy/demo/webhook-receiver.yaml')
+helm upgrade --install krip $chart --kube-context $context --namespace $namespace --set webhook.enabled=true --set webhook.existingSecret=runtime-incident-platform-webhook --set webhook.tlsSecret=runtime-incident-platform-webhook-tls --set-string webhook.caBundle=$caBundle --set webhook.url=http://webhook-receiver.runtime-system.svc.cluster.local:8080/ --set webhook.allowlist=webhook-receiver.runtime-system.svc.cluster.local --wait --timeout 5m
 kubectl --context $context -n $namespace wait --for=condition=Available deployment --all --timeout=180s
-Write-Host "Demo cluster is ready. Run 'make demo' again safely or continue with phase 9.8 fault injection."
+& (Join-Path $PSScriptRoot 'demo-faults.ps1') -ClusterName $ClusterName
