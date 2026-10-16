@@ -3,7 +3,8 @@ FROM golang:1.26.9-alpine3.23 AS build
 WORKDIR /src
 RUN apk add --no-cache ca-certificates git
 COPY go.mod go.sum ./
-RUN go mod download
+ARG GOPROXY=https://proxy.golang.org,direct
+RUN GOPROXY="${GOPROXY}" go mod download
 COPY api ./api
 COPY cmd ./cmd
 COPY internal ./internal

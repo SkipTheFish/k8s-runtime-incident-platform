@@ -15,4 +15,10 @@ metadata:
 spec:
   type: {{ .Values.frontend.service.type }}
   selector: {app.kubernetes.io/name: {{ include "runtime-incident-platform.name" . }}, app.kubernetes.io/component: frontend}
-  ports: [{name: http, port: {{ .Values.frontend.service.port }}, targetPort: http}]
+  ports:
+    - name: http
+      port: {{ .Values.frontend.service.port }}
+      targetPort: http
+      {{- with .Values.frontend.service.nodePort }}
+      nodePort: {{ . }}
+      {{- end }}
