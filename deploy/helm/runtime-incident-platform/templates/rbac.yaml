@@ -16,7 +16,7 @@ rules:
     verbs: [get, list, watch]
   - apiGroups: [observability.io]
     resources: [alertpolicies, correlationpolicies, observabilitytargets, observetenants]
-    verbs: [get, list, watch]
+    verbs: [get, list, watch, patch, update]
   - apiGroups: [observability.io]
     resources: [alertpolicies/status, correlationpolicies/status, observabilitytargets/status, observetenants/status]
     verbs: [get, patch, update]

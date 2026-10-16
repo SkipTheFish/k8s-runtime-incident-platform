@@ -11,4 +11,14 @@
 5. 连续执行两次 `make demo`，确认初始化幂等；验证三类故障均形成 Incident、时间线与签名 Webhook 投递。
 6. 连续执行两次 `make demo-clean`，确认只删除 `krip-demo` 集群和 `deploy/tmp/demo` 生成物。
 
+## 三节点 k3s 等价验收
+
+实际部署可使用三节点 k3s 代替 Windows kind。安装时必须启用 `config.kubernetesEnabled=true` 和 Admission Webhook，并确保集群已提供 Prometheus Operator 的 `PrometheusRule`、`ServiceMonitor` CRD。部署完成后执行：
+
+```powershell
+pwsh -NoProfile -File hack/test-k3s.ps1 -Context <kube-context> -Namespace runtime-system -Release krip
+```
+
+该脚本检查 Pod Ready、`/livez`、`/readyz`、主资源/status RBAC、三类 Incident、Context 完整性和带签名头的 Webhook 成功投递。
+
 上述检查未执行前，阶段九的“真实环境门禁”状态为待验证，不应声明生产就绪。

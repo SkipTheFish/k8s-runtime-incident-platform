@@ -18,9 +18,11 @@ func TestImagePullBackOffRule(t *testing.T) {
 	}{
 		{"kubernetes ImagePullBackOff", signal.Signal{ClusterID: "c", Source: signal.SourceKubernetes, Type: signal.TypeWarning, Reason: "ImagePullBackOff", Labels: map[string]string{"container": "api"}}, true, false},
 		{"kubernetes ErrImagePull", signal.Signal{ClusterID: "c", Source: signal.SourceKubernetes, Type: signal.TypeWarning, Reason: "ErrImagePull", Labels: map[string]string{"container": "api"}}, true, false},
+		{"kubernetes Failed pull", signal.Signal{ClusterID: "c", Source: signal.SourceKubernetes, Type: signal.TypeWarning, Reason: "Failed", Message: "Failed to pull image invalid.example/app", Labels: map[string]string{"container": "api"}}, true, false},
+		{"kubernetes BackOff pull", signal.Signal{ClusterID: "c", Source: signal.SourceKubernetes, Type: signal.TypeWarning, Reason: "BackOff", Message: "Back-off pulling image invalid.example/app", Labels: map[string]string{"container": "api"}}, true, false},
 		{"prometheus firing", signal.Signal{ClusterID: "c", Source: signal.SourcePrometheus, Type: signal.TypeAlertFiring, Reason: "KubePodImagePullBackOff", Labels: map[string]string{"container": "api"}}, true, false},
 		{"prometheus resolved", signal.Signal{ClusterID: "c", Source: signal.SourcePrometheus, Type: signal.TypeAlertResolved, Reason: "KubePodImagePullBackOff", Labels: map[string]string{"container": "api"}}, true, true},
-		{"other", signal.Signal{Reason: "BackOff"}, false, false},
+		{"other", signal.Signal{Source: signal.SourceKubernetes, Reason: "BackOff", Message: "Back-off restarting failed container"}, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

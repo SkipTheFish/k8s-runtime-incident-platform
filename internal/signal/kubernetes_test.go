@@ -11,7 +11,7 @@ import (
 )
 
 func TestFromKubernetesEvent(t *testing.T) {
-	for _, reason := range []string{"ImagePullBackOff", "ErrImagePull", "BackOff", "FailedScheduling"} {
+	for _, reason := range []string{"ImagePullBackOff", "ErrImagePull", "Failed", "BackOff", "FailedScheduling"} {
 		t.Run(reason, func(t *testing.T) {
 			sourceTime := time.Date(2026, 9, 1, 1, 2, 3, 0, time.UTC)
 			event := &corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "event-1", Namespace: "default", UID: types.UID("event-uid")}, Type: corev1.EventTypeWarning, Reason: reason, Message: "failure", EventTime: metav1.MicroTime{Time: sourceTime}, InvolvedObject: corev1.ObjectReference{APIVersion: "v1", Kind: "Pod", Namespace: "default", Name: "pod-a", UID: types.UID("pod-uid")}}

@@ -46,7 +46,14 @@ func (r ImagePullBackOffRule) Match(_ context.Context, input EvaluationInput) (M
 
 func isImagePullSignal(item signal.Signal) bool {
 	reason := strings.ToLower(item.Reason)
-	return reason == "imagepullbackoff" || reason == "errimagepull" || strings.Contains(reason, "imagepull")
+	message := strings.ToLower(item.Message)
+	if reason == "imagepullbackoff" || reason == "errimagepull" || strings.Contains(reason, "imagepull") {
+		return true
+	}
+	if item.Source != signal.SourceKubernetes || (reason != "failed" && reason != "backoff") {
+		return false
+	}
+	return strings.Contains(message, "pull image") || strings.Contains(message, "pulling image") || strings.Contains(message, "image pull")
 }
 
 func signalDimension(item signal.Signal, key, fallback string) string {

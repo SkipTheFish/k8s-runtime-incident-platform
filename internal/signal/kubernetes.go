@@ -12,7 +12,7 @@ import (
 var ErrFiltered = errors.New("event filtered")
 
 var acceptedWarningReasons = map[string]struct{}{
-	"ImagePullBackOff": {}, "ErrImagePull": {}, "BackOff": {}, "FailedScheduling": {},
+	"ImagePullBackOff": {}, "ErrImagePull": {}, "Failed": {}, "BackOff": {}, "FailedScheduling": {},
 }
 
 var containerFieldPath = regexp.MustCompile(`(?:initContainers|containers)\{([^}]+)\}`)

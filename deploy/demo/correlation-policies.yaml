@@ -10,7 +10,7 @@ spec:
   window: 10m
   reopenWindow: 30m
   severity: warning
-  priority: 300
+  priority: 290
   explain: true
 ---
 apiVersion: observability.io/v1
@@ -25,7 +25,7 @@ spec:
   window: 10m
   reopenWindow: 30m
   severity: critical
-  priority: 200
+  priority: 190
   explain: true
 ---
 apiVersion: observability.io/v1
@@ -40,5 +40,5 @@ spec:
   window: 10m
   reopenWindow: 30m
   severity: warning
-  priority: 100
+  priority: 90
   explain: true

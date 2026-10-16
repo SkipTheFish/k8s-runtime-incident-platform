@@ -17,4 +17,4 @@ storage:
   trace:
     backend: local
     local:
-      path: /tmp/tempo
+      path: /var/tempo
