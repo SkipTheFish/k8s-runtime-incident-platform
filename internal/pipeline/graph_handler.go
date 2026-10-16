@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,14 +82,25 @@ func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
 	}
 	result, err := resolver.Resolve(resourcegraph.ResourceKey{ClusterID: item.ClusterID, APIVersion: item.Resource.APIVersion, Kind: item.Resource.Kind, Namespace: item.Resource.Namespace, Name: item.Resource.Name, UID: item.Resource.UID})
 	if err != nil {
-		retryable := errors.Is(err, resourcegraph.ErrResourceNotFound) || errors.Is(err, resourcegraph.ErrOwnerNotFound) || errors.Is(err, resourcegraph.ErrOrphanPod)
-		classified := &ResolutionError{Cause: fmt.Errorf("resolve signal root: %w", err), retryable: retryable}
-		if !retryable {
-			if updateErr := h.store.MarkUnmatched(ctx, item.ID, classified.Error()); updateErr != nil {
-				return updateErr
+		if errors.Is(err, resourcegraph.ErrOrphanPod) && isFailedSchedulingPod(item) {
+			result.Root = resourcegraph.ResourceNode{Key: resourcegraph.ResourceKey{
+				ClusterID:  item.ClusterID,
+				APIVersion: item.Resource.APIVersion,
+				Kind:       item.Resource.Kind,
+				Namespace:  item.Resource.Namespace,
+				Name:       item.Resource.Name,
+				UID:        item.Resource.UID,
+			}}
+		} else {
+			retryable := errors.Is(err, resourcegraph.ErrResourceNotFound) || errors.Is(err, resourcegraph.ErrOwnerNotFound) || errors.Is(err, resourcegraph.ErrOrphanPod)
+			classified := &ResolutionError{Cause: fmt.Errorf("resolve signal root: %w", err), retryable: retryable}
+			if !retryable {
+				if updateErr := h.store.MarkUnmatched(ctx, item.ID, classified.Error()); updateErr != nil {
+					return updateErr
+				}
 			}
+			return classified
 		}
-		return classified
 	}
 	h.mu.RLock()
 	evaluator := h.evaluator
@@ -131,4 +143,8 @@ func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
 		return err
 	}
 	return h.store.RecordDecision(ctx, item, match)
+}
+
+func isFailedSchedulingPod(item signal.Signal) bool {
+	return strings.EqualFold(strings.TrimSpace(item.Reason), "FailedScheduling") && strings.EqualFold(strings.TrimSpace(item.Resource.Kind), "Pod")
 }

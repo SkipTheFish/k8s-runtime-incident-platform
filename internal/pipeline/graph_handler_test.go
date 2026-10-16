@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -133,6 +134,60 @@ func TestGraphHandlerKeepsUIDLessSignalAsUnmatched(t *testing.T) {
 	if unmatched != 1 {
 		t.Fatalf("unmatched=%d", unmatched)
 	}
+}
+
+func TestGraphHandlerUsesOrphanPodAsRootOnlyForFailedScheduling(t *testing.T) {
+	podIndexer := newGraphIndexer()
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pending", Namespace: "ns", UID: types.UID("pod-1")}}
+	if err := podIndexer.Add(pod); err != nil {
+		t.Fatal(err)
+	}
+	resolver := resourcegraph.NewResolver([]resourcegraph.IndexedResource{{Indexer: podIndexer, GVK: schema.FromAPIVersionAndKind("v1", "Pod")}}, 8)
+
+	t.Run("FailedScheduling reaches evaluator with Pod root", func(t *testing.T) {
+		store := &memorySignalStore{matched: make(chan resourcegraph.ResourceKey, 1)}
+		handler := NewGraphHandler(store)
+		handler.SetResolver(resolver)
+		evaluated := false
+		handler.SetEvaluator(evaluatorFunc(func(_ context.Context, input correlation.EvaluationInput) (correlation.MatchResult, error) {
+			evaluated = true
+			if input.Root.Kind != "Pod" || input.Root.UID != "pod-1" || input.Root.Name != "pending" {
+				t.Fatalf("root=%#v", input.Root)
+			}
+			return correlation.MatchResult{Matched: true, Root: input.Root, RuleName: "failed-scheduling", RuleVersion: "v1", Fingerprint: "fp"}, nil
+		}))
+		item := signal.Signal{ID: "failed-scheduling", ClusterID: "c", Reason: "FailedScheduling", Resource: signal.ObjectReference{APIVersion: "v1", Kind: "Pod", Namespace: "ns", Name: "pending", UID: "pod-1"}}
+		if err := handler.Handle(context.Background(), item); err != nil {
+			t.Fatal(err)
+		}
+		if !evaluated {
+			t.Fatal("evaluator was not called")
+		}
+		select {
+		case root := <-store.matched:
+			if root.Kind != "Pod" || root.UID != "pod-1" {
+				t.Fatalf("matched root=%#v", root)
+			}
+		default:
+			t.Fatal("signal was not marked matched")
+		}
+	})
+
+	t.Run("other orphan Pod remains retryable", func(t *testing.T) {
+		store := &memorySignalStore{matched: make(chan resourcegraph.ResourceKey, 1)}
+		handler := NewGraphHandler(store)
+		handler.SetResolver(resolver)
+		handler.SetEvaluator(evaluatorFunc(func(context.Context, correlation.EvaluationInput) (correlation.MatchResult, error) {
+			t.Fatal("evaluator must not be called for a non-scheduling orphan Pod")
+			return correlation.MatchResult{}, nil
+		}))
+		item := signal.Signal{ID: "backoff", ClusterID: "c", Reason: "BackOff", Resource: signal.ObjectReference{APIVersion: "v1", Kind: "Pod", Namespace: "ns", Name: "pending", UID: "pod-1"}}
+		err := handler.Handle(context.Background(), item)
+		var classified *ResolutionError
+		if !errors.As(err, &classified) || !classified.Retryable() || !errors.Is(err, resourcegraph.ErrOrphanPod) {
+			t.Fatalf("error=%v", err)
+		}
+	})
 }
 
 func newGraphIndexer() cache.Indexer {
