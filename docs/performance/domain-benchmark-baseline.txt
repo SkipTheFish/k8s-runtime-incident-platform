@@ -1,0 +1,12 @@
+# Domain microbenchmark baseline
+# Captured: 2026-10-16T22:55:00+08:00
+# Command: go test -run '^$' -bench 'Benchmark(SignalFingerprint|EventNormalization|RuleEvaluation|IncidentCorrelation)$' -benchmem -benchtime=500ms -count=1 ./internal/signal ./internal/correlation
+# Environment: windows/amd64, Go 1.26.9, 13th Gen Intel(R) Core(TM) i5-13500HX
+
+BenchmarkSignalFingerprint-20       1505521       753.0 ns/op       384 B/op        5 allocs/op
+BenchmarkEventNormalization-20        19228       33675 ns/op     13872 B/op       15 allocs/op
+BenchmarkRuleEvaluation-20            916338        1348 ns/op       824 B/op        8 allocs/op
+BenchmarkIncidentCorrelation-20       199986        5065 ns/op      1730 B/op       19 allocs/op
+
+# This is a local first-run reference, not a production SLO or capacity claim.
+# Compare like-for-like environments and use multiple samples before treating a change as a regression.
