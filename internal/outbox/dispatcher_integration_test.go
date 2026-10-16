@@ -3,7 +3,9 @@ package outbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,13 +15,22 @@ import (
 )
 
 type recordingDeliverer struct {
+	mu     sync.Mutex
 	events []Event
 	err    error
 }
 
 func (d *recordingDeliverer) Deliver(_ context.Context, event Event) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.events = append(d.events, event)
 	return d.err
+}
+
+func (d *recordingDeliverer) count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.events)
 }
 
 func TestClaimRecoversAfterRestartAndKeepsEventID(t *testing.T) {
@@ -48,8 +59,8 @@ func TestDispatcherDeliversDueEventAndReleasesFailure(t *testing.T) {
 	deliverer := &recordingDeliverer{}
 	dispatcher := NewDispatcher(NewStore(pool), deliverer, Config{BatchSize: 10})
 	count, err := dispatcher.ProcessOnce(context.Background())
-	if err != nil || count != 1 || len(deliverer.events) != 1 {
-		t.Fatalf("count=%d events=%d err=%v", count, len(deliverer.events), err)
+	if err != nil || count != 1 || deliverer.count() != 1 {
+		t.Fatalf("count=%d events=%d err=%v", count, deliverer.count(), err)
 	}
 	var status string
 	if err := pool.QueryRow(context.Background(), `SELECT status FROM outbox_events WHERE event_id='delivery-event'`).Scan(&status); err != nil || status != "delivered" {
@@ -64,6 +75,50 @@ func TestDispatcherDeliversDueEventAndReleasesFailure(t *testing.T) {
 	var eventID string
 	if err := pool.QueryRow(context.Background(), `SELECT event_id FROM outbox_events WHERE event_id='failed-event' AND status='pending'`).Scan(&eventID); err != nil || eventID != "failed-event" {
 		t.Fatalf("eventID=%s err=%v", eventID, err)
+	}
+}
+
+func TestDispatcherConcurrentClaimsDeliverEachEventOnce(t *testing.T) {
+	pool := outboxTestPool(t)
+	defer pool.Close()
+	seedOutboxBatch(t, pool, 40)
+	deliverer := &recordingDeliverer{}
+	store := NewStore(pool)
+	var group sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			dispatcher := NewDispatcher(store, deliverer, Config{BatchSize: 5})
+			if _, err := dispatcher.ProcessOnce(context.Background()); err != nil {
+				t.Errorf("process: %v", err)
+			}
+		}()
+	}
+	group.Wait()
+	if got := deliverer.count(); got != 40 {
+		t.Fatalf("deliveries=%d want=40", got)
+	}
+	var delivered int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM outbox_events WHERE status='delivered'`).Scan(&delivered); err != nil || delivered != 40 {
+		t.Fatalf("delivered=%d err=%v", delivered, err)
+	}
+}
+
+func seedOutboxBatch(t *testing.T, pool *pgxpool.Pool, count int) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `TRUNCATE webhook_deliveries,outbox_events,timeline_entries,correlation_decisions,incident_signals,incidents,dead_letter_events,processed_events,signals RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < count; index++ {
+		eventID := fmt.Sprintf("concurrent-%d", index)
+		var incidentID int64
+		if err := pool.QueryRow(context.Background(), `INSERT INTO incidents(tenant_id,title,status,namespace,policy_name,severity,started_at,updated_at,last_event_at,fingerprint,category,root_resource,version,correlation_policy,policy_generation,reopen_window_seconds) VALUES('default','test','open','','','warning',now(),now(),now(),$1,'test','{}',1,'test',1,1800) RETURNING id`, "outbox-"+eventID).Scan(&incidentID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(context.Background(), `INSERT INTO outbox_events(event_id,incident_id,event_type,payload) VALUES($1,$2,'incident.created','{"ok":true}')`, eventID, incidentID); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

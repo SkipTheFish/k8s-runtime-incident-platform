@@ -3,6 +3,7 @@ package correlation
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -11,6 +12,29 @@ type testRule struct {
 	priority         int
 	enabled, matched bool
 	err              error
+}
+
+func TestRegistryConcurrentReplaceFindAndEvaluate(t *testing.T) {
+	registry := NewRegistry(testRule{name: "initial", version: "v1", priority: 1, enabled: true, matched: true})
+	var group sync.WaitGroup
+	for worker := 0; worker < 12; worker++ {
+		group.Add(1)
+		go func(worker int) {
+			defer group.Done()
+			for iteration := 0; iteration < 200; iteration++ {
+				if worker%3 == 0 {
+					registry.Replace([]CorrelationRule{testRule{name: "replacement", version: "v1", priority: 1, enabled: true, matched: true}})
+					continue
+				}
+				registry.Find("replacement")
+				if _, err := registry.Evaluate(context.Background(), EvaluationInput{}); err != nil {
+					t.Errorf("evaluate: %v", err)
+					return
+				}
+			}
+		}(worker)
+	}
+	group.Wait()
 }
 
 func (r testRule) Name() string    { return r.name }
