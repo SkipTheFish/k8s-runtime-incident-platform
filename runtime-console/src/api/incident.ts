@@ -7,8 +7,46 @@ import { mockIncidents } from "./mock";
 
 import type {
   Incident,
-  IncidentListResponse,
 } from "../types/incident";
+
+interface IncidentAPIResponse {
+  id: number;
+  title?: string;
+  status: Incident["status"];
+  severity: Incident["severity"];
+  namespace?: string;
+  policy?: string;
+  category?: string;
+  fingerprint?: string;
+  rootResource?: {
+    kind?: string;
+    name?: string;
+    namespace?: string;
+  };
+  startedAt?: string;
+  updatedAt?: string;
+}
+
+interface IncidentAPIListResponse {
+  items: IncidentAPIResponse[];
+}
+
+function normalizeIncident(item: IncidentAPIResponse): Incident {
+  return {
+    id: item.id,
+    title: item.title,
+    status: item.status,
+    severity: item.severity,
+    category: item.category,
+    fingerprint: item.fingerprint,
+    resource_kind: item.rootResource?.kind || "Unknown",
+    resource_name: item.rootResource?.name || item.title || `Incident #${item.id}`,
+    namespace: item.namespace || item.rootResource?.namespace,
+    policy_name: item.policy,
+    started_at: item.startedAt,
+    updated_at: item.updatedAt,
+  };
+}
 
 export async function fetchIncidents(): Promise<Incident[]> {
   if (demoMode) {
@@ -16,11 +54,11 @@ export async function fetchIncidents(): Promise<Incident[]> {
   }
 
   const { data } =
-    await client.get<IncidentListResponse>(
+    await client.get<IncidentAPIListResponse>(
       "/incidents"
     );
 
-  return data.items;
+  return data.items.map(normalizeIncident);
 }
 
 export async function fetchOpenIncidents(): Promise<
@@ -34,11 +72,11 @@ export async function fetchOpenIncidents(): Promise<
   }
 
   const { data } =
-    await client.get<IncidentListResponse>(
+    await client.get<IncidentAPIListResponse>(
       "/incidents/open"
     );
 
-  return data.items;
+  return data.items.map(normalizeIncident);
 }
 
 export async function fetchIncidentDetail(
@@ -62,9 +100,9 @@ export async function fetchIncidentDetail(
   }
 
   const { data } =
-    await client.get<Incident>(
+    await client.get<IncidentAPIResponse>(
       `/incidents/${id}`
     );
 
-  return data;
+  return normalizeIncident(data);
 }

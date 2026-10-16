@@ -6,8 +6,11 @@ export type TimelineType = "SYSTEM" | "RUNTIME";
 
 export interface Incident {
   id: number;
+  title?: string;
   status: IncidentStatus;
   severity: IncidentSeverity;
+  category?: string;
+  fingerprint?: string;
   resource_kind: string;
   resource_name: string;
   namespace?: string;
@@ -27,8 +30,8 @@ export interface TimelineEvent {
   timeline_type: TimelineType;
   severity: IncidentSeverity | "error";
   message: string;
-  resource_kind: string;
-  resource_name: string;
+  resource_kind?: string;
+  resource_name?: string;
   occurred_at: string;
 }
 

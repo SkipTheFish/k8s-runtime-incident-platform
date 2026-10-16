@@ -93,7 +93,12 @@ function getDotClass(severity: string) {
           {{ getTimelineTypeLabel(props.item.timeline_type) }}
         </n-tag>
 
-        <n-tag size="small" round :bordered="false">
+        <n-tag
+          v-if="props.item.resource_kind || props.item.resource_name"
+          size="small"
+          round
+          :bordered="false"
+        >
           {{ props.item.resource_kind }}/{{ props.item.resource_name }}
         </n-tag>
       </div>
