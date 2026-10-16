@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,5 +49,24 @@ func TestParseRetryAfterIsBounded(t *testing.T) {
 	}
 	if got := ParseRetryAfter("invalid", now, time.Minute); got != 0 {
 		t.Fatalf("invalid=%v", got)
+	}
+}
+
+func TestDeliveryErrorContractAndRetryAfterEdges(t *testing.T) {
+	failure := &DeliveryError{retryable: true, status: http.StatusServiceUnavailable, summary: "unavailable", retryAfter: time.Second}
+	if failure.Error() != "webhook delivery failed with HTTP 503" || failure.HTTPStatus() != http.StatusServiceUnavailable {
+		t.Fatalf("failure contract=%+v error=%q", failure, failure.Error())
+	}
+	now := time.Date(2026, 10, 3, 10, 0, 0, 0, time.UTC)
+	for _, value := range []string{"", "-1", now.Add(-time.Second).Format(http.TimeFormat)} {
+		if got := ParseRetryAfter(value, now, time.Minute); got != 0 {
+			t.Fatalf("ParseRetryAfter(%q)=%v", value, got)
+		}
+	}
+	if got := sanitizeResponse(strings.Repeat("x", 5000)); len(got) != 4110 || !strings.HasSuffix(got, "...[TRUNCATED]") {
+		t.Fatalf("sanitized response length=%d suffix=%q", len(got), got[len(got)-14:])
+	}
+	if NewClient("https://example.invalid", "secret", nil).httpClient != http.DefaultClient {
+		t.Fatal("nil HTTP client did not use the default client")
 	}
 }

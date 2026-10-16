@@ -49,3 +49,49 @@ func TestKubernetesEventFiltering(t *testing.T) {
 		t.Fatalf("expected filtered error, got %v", err)
 	}
 }
+
+func TestKubernetesEventTimestampPrecedenceAndFallbacks(t *testing.T) {
+	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		mutate func(*corev1.Event)
+		want   time.Time
+	}{
+		{"event time", func(event *corev1.Event) { event.EventTime = metav1.MicroTime{Time: base.Add(5 * time.Minute)} }, base.Add(5 * time.Minute)},
+		{"series", func(event *corev1.Event) {
+			event.Series = &corev1.EventSeries{LastObservedTime: metav1.MicroTime{Time: base.Add(4 * time.Minute)}}
+		}, base.Add(4 * time.Minute)},
+		{"last timestamp", func(event *corev1.Event) { event.LastTimestamp = metav1.Time{Time: base.Add(3 * time.Minute)} }, base.Add(3 * time.Minute)},
+		{"first timestamp", func(event *corev1.Event) { event.FirstTimestamp = metav1.Time{Time: base.Add(2 * time.Minute)} }, base.Add(2 * time.Minute)},
+		{"creation timestamp", func(event *corev1.Event) { event.CreationTimestamp = metav1.Time{Time: base.Add(time.Minute)} }, base.Add(time.Minute)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := &corev1.Event{Type: corev1.EventTypeWarning, Reason: "BackOff", ObjectMeta: metav1.ObjectMeta{Name: "event", Namespace: "ns"}, InvolvedObject: corev1.ObjectReference{UID: "pod"}}
+			test.mutate(event)
+			got, err := FromKubernetesEvent("cluster", event, base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.OccurredAt.Equal(test.want) || got.SourceEventKey != "ns/event" {
+				t.Fatalf("occurredAt=%s sourceKey=%q", got.OccurredAt, got.SourceEventKey)
+			}
+		})
+	}
+}
+
+func TestKubernetesEventRejectsMissingTimestampAndMapsOwners(t *testing.T) {
+	event := &corev1.Event{Type: corev1.EventTypeWarning, Reason: "BackOff", InvolvedObject: corev1.ObjectReference{UID: "pod"}}
+	if _, err := FromKubernetesEvent("cluster", event, time.Now()); err == nil {
+		t.Fatal("event without source timestamp was accepted")
+	}
+	event.EventTime = metav1.MicroTime{Time: time.Now()}
+	event.OwnerReferences = []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "Deployment", Name: "api", UID: "deployment"}}
+	got, err := FromKubernetesEvent("cluster", event, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.OwnerReferences) != 1 || got.OwnerReferences[0].UID != "deployment" {
+		t.Fatalf("owners=%#v", got.OwnerReferences)
+	}
+}

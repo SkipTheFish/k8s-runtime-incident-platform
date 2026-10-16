@@ -10,6 +10,7 @@ type testRule struct {
 	name, version    string
 	priority         int
 	enabled, matched bool
+	err              error
 }
 
 func (r testRule) Name() string    { return r.name }
@@ -17,7 +18,26 @@ func (r testRule) Version() string { return r.version }
 func (r testRule) Priority() int   { return r.priority }
 func (r testRule) Enabled() bool   { return r.enabled }
 func (r testRule) Match(context.Context, EvaluationInput) (MatchResult, error) {
-	return MatchResult{Matched: r.matched, FingerprintInput: FingerprintInput{ClusterID: "c", RootResourceUID: "u"}}, nil
+	return MatchResult{Matched: r.matched, FingerprintInput: FingerprintInput{ClusterID: "c", RootResourceUID: "u"}}, r.err
+}
+
+func TestRegistryFindSnapshotIsolationAndRuleError(t *testing.T) {
+	original := []CorrelationRule{testRule{name: "tenant/policy", priority: 1, enabled: true}}
+	registry := NewRegistry(original...)
+	original[0] = testRule{name: "mutated"}
+	if _, ok := registry.Find("policy"); !ok {
+		t.Fatal("policy suffix lookup failed or caller mutated registry state")
+	}
+	snapshot := registry.Snapshot()
+	snapshot[0] = testRule{name: "snapshot-mutated"}
+	if _, ok := registry.Find("tenant/policy"); !ok {
+		t.Fatal("snapshot mutation changed registry state")
+	}
+	sentinel := errors.New("rule failed")
+	_, err := NewRegistry(testRule{name: "broken", priority: 1, enabled: true, err: sentinel}).Evaluate(context.Background(), EvaluationInput{})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error=%v", err)
+	}
 }
 
 func TestRegistryPriorityDisabledAndNoMatch(t *testing.T) {

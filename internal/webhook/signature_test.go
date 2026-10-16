@@ -72,3 +72,18 @@ func TestSignatureRejectsExpiredOrFutureTimestamp(t *testing.T) {
 		}
 	}
 }
+
+func TestSignatureAcceptsExactTimeWindowBoundaries(t *testing.T) {
+	signer := NewSigner("test-secret")
+	now := time.Unix(1790000000, 0)
+	maxAge := 5 * time.Minute
+	for _, timestamp := range []time.Time{now.Add(-maxAge), now.Add(maxAge)} {
+		signature := signer.Sign(timestamp, "event", nil)
+		if err := signer.Verify(now, maxAge, strconv.FormatInt(timestamp.Unix(), 10), "event", nil, signature); err != nil {
+			t.Fatalf("boundary timestamp %s rejected: %v", timestamp, err)
+		}
+	}
+	if err := signer.Verify(now, maxAge, "not-a-number", "event", nil, "v1=invalid"); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("invalid timestamp error=%v", err)
+	}
+}
