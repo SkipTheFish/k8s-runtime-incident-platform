@@ -19,6 +19,7 @@ func TestCrashLoopBackOffRule(t *testing.T) {
 		{"event short", signal.Signal{Source: signal.SourceKubernetes, Reason: "BackOff", Labels: map[string]string{"container": "api"}}, true, false},
 		{"prom firing", signal.Signal{Source: signal.SourcePrometheus, Type: signal.TypeAlertFiring, Reason: "KubePodCrashLooping", Labels: map[string]string{"container": "api"}}, true, false},
 		{"prom resolved", signal.Signal{Source: signal.SourcePrometheus, Type: signal.TypeAlertResolved, Reason: "KubePodContainerRestarting", Labels: map[string]string{"container": "api"}}, true, true},
+		{"kubernetes started", signal.Signal{Source: signal.SourceKubernetes, Type: signal.TypeNormal, Reason: "Started", Labels: map[string]string{"container": "api"}}, true, true},
 		{"image reason", signal.Signal{Source: signal.SourceKubernetes, Reason: "ImagePullBackOff", Message: "Back-off pulling image"}, false, false},
 		{"ambiguous pull BackOff", signal.Signal{Source: signal.SourceKubernetes, Reason: "BackOff", Message: "Back-off pulling image example.invalid/app"}, false, false},
 	}
