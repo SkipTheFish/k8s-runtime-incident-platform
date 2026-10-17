@@ -17,7 +17,8 @@ type ObserveTenantSpec struct {
 }
 
 type ObserveTenantStatus struct {
-	NamespaceCreated bool `json:"namespaceCreated,omitempty"`
+	NamespaceCreated   bool  `json:"namespaceCreated,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 //+kubebuilder:object:root=true

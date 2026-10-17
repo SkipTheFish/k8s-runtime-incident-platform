@@ -19,7 +19,8 @@ type ObservabilityTargetSpec struct {
 }
 
 type ObservabilityTargetStatus struct {
-	Synced bool `json:"synced,omitempty"`
+	Synced             bool  `json:"synced,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 //+kubebuilder:object:root=true

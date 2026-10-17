@@ -58,6 +58,9 @@ spec:
             properties:
               namespaceCreated:
                 type: boolean
+              observedGeneration:
+                type: integer
+                format: int64
             type: object
         type: object
     served: true

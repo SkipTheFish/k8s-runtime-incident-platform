@@ -28,6 +28,7 @@ build/
 # coverage
 coverage/
 coverage.out
+.cache/envtest/
 
 # local Kubernetes and Helm output
 .kind/

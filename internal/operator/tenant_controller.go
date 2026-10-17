@@ -8,8 +8,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -70,6 +70,11 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if err := r.Update(ctx, &existingRole); err != nil {
 			return ctrl.Result{}, err
 		}
+	}
+	tenant.Status.NamespaceCreated = true
+	tenant.Status.ObservedGeneration = tenant.Generation
+	if err := r.Status().Update(ctx, &tenant); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil

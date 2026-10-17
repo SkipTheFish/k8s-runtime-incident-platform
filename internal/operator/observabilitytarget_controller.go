@@ -41,7 +41,12 @@ func (r *ObservabilityTargetReconciler) Reconcile(ctx context.Context, req ctrl.
 	}, &existing)
 
 	if apierrors.IsNotFound(err) {
-		return ctrl.Result{}, r.Create(ctx, sm)
+		if err := r.Create(ctx, sm); err != nil {
+			return ctrl.Result{}, err
+		}
+		target.Status.Synced = true
+		target.Status.ObservedGeneration = target.Generation
+		return ctrl.Result{}, r.Status().Update(ctx, &target)
 	}
 
 	if err != nil {
@@ -51,7 +56,12 @@ func (r *ObservabilityTargetReconciler) Reconcile(ctx context.Context, req ctrl.
 	existing.Spec = sm.Spec
 	existing.Labels = sm.Labels
 
-	return ctrl.Result{}, r.Update(ctx, &existing)
+	if err := r.Update(ctx, &existing); err != nil {
+		return ctrl.Result{}, err
+	}
+	target.Status.Synced = true
+	target.Status.ObservedGeneration = target.Generation
+	return ctrl.Result{}, r.Status().Update(ctx, &target)
 }
 
 func (r *ObservabilityTargetReconciler) SetupWithManager(mgr ctrl.Manager) error {
