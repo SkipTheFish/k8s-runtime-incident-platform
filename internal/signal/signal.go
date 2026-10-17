@@ -16,6 +16,7 @@ const (
 	SourceKubernetes  Source = "kubernetes"
 	SourcePrometheus  Source = "prometheus"
 	TypeWarning       Type   = "warning"
+	TypeNormal        Type   = "normal"
 	TypeAlertFiring   Type   = "alert.firing"
 	TypeAlertResolved Type   = "alert.resolved"
 	maxMessage               = 4096

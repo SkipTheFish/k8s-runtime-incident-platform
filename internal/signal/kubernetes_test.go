@@ -43,7 +43,7 @@ func TestFromKubernetesEventExtractsContainer(t *testing.T) {
 }
 
 func TestKubernetesEventFiltering(t *testing.T) {
-	event := &corev1.Event{Type: corev1.EventTypeNormal, Reason: "Pulled", LastTimestamp: metav1.Now()}
+	event := &corev1.Event{Type: corev1.EventTypeNormal, Reason: "Created", LastTimestamp: metav1.Now()}
 	_, err := FromKubernetesEvent("cluster", event, time.Now())
 	if !errors.Is(err, ErrFiltered) {
 		t.Fatalf("expected filtered error, got %v", err)
@@ -93,5 +93,21 @@ func TestKubernetesEventRejectsMissingTimestampAndMapsOwners(t *testing.T) {
 	}
 	if len(got.OwnerReferences) != 1 || got.OwnerReferences[0].UID != "deployment" {
 		t.Fatalf("owners=%#v", got.OwnerReferences)
+	}
+}
+
+func TestFromKubernetesEventAcceptsOnlyRecoveryNormalReasons(t *testing.T) {
+	for _, reason := range []string{"Pulled", "Started", "Scheduled"} {
+		t.Run(reason, func(t *testing.T) {
+			event := &corev1.Event{ObjectMeta: metav1.ObjectMeta{UID: types.UID("normal-" + reason)}, Type: corev1.EventTypeNormal, Reason: reason, EventTime: metav1.MicroTime{Time: time.Now()}, InvolvedObject: corev1.ObjectReference{Kind: "Pod", UID: "pod"}}
+			got, err := FromKubernetesEvent("cluster", event, time.Now())
+			if err != nil || got.Type != TypeNormal {
+				t.Fatalf("signal=%+v err=%v", got, err)
+			}
+		})
+	}
+	event := &corev1.Event{Type: corev1.EventTypeNormal, Reason: "Created", EventTime: metav1.NowMicro()}
+	if _, err := FromKubernetesEvent("cluster", event, time.Now()); !errors.Is(err, ErrFiltered) {
+		t.Fatalf("unrelated Normal event error=%v", err)
 	}
 }

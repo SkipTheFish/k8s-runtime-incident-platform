@@ -15,14 +15,26 @@ var acceptedWarningReasons = map[string]struct{}{
 	"ImagePullBackOff": {}, "ErrImagePull": {}, "Failed": {}, "BackOff": {}, "FailedScheduling": {},
 }
 
+var acceptedNormalReasons = map[string]struct{}{
+	"Pulled": {}, "Started": {}, "Scheduled": {},
+}
+
 var containerFieldPath = regexp.MustCompile(`(?:initContainers|containers)\{([^}]+)\}`)
 
 func FromKubernetesEvent(clusterID string, event *corev1.Event, observedAt time.Time) (Signal, error) {
-	if event.Type != corev1.EventTypeWarning {
+	signalType := TypeWarning
+	switch event.Type {
+	case corev1.EventTypeWarning:
+		if _, ok := acceptedWarningReasons[event.Reason]; !ok {
+			return Signal{}, fmt.Errorf("%w: warning reason %s", ErrFiltered, event.Reason)
+		}
+	case corev1.EventTypeNormal:
+		if _, ok := acceptedNormalReasons[event.Reason]; !ok {
+			return Signal{}, fmt.Errorf("%w: normal reason %s", ErrFiltered, event.Reason)
+		}
+		signalType = TypeNormal
+	default:
 		return Signal{}, fmt.Errorf("%w: type %s", ErrFiltered, event.Type)
-	}
-	if _, ok := acceptedWarningReasons[event.Reason]; !ok {
-		return Signal{}, fmt.Errorf("%w: reason %s", ErrFiltered, event.Reason)
 	}
 	occurredAt := kubernetesEventTime(event)
 	if occurredAt.IsZero() {
@@ -37,7 +49,7 @@ func FromKubernetesEvent(clusterID string, event *corev1.Event, observedAt time.
 		sourceKey = event.Namespace + "/" + event.Name
 	}
 	s := Signal{
-		ClusterID: clusterID, Source: SourceKubernetes, Type: TypeWarning,
+		ClusterID: clusterID, Source: SourceKubernetes, Type: signalType,
 		SourceEventKey: sourceKey, Reason: event.Reason, Namespace: event.InvolvedObject.Namespace,
 		Resource:        ObjectReference{APIVersion: event.InvolvedObject.APIVersion, Kind: event.InvolvedObject.Kind, Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name, UID: string(event.InvolvedObject.UID)},
 		OwnerReferences: owners, Message: event.Message, OccurredAt: occurredAt, ObservedAt: observedAt,

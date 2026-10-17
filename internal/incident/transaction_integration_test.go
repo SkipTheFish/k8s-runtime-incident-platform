@@ -79,6 +79,59 @@ func TestTransactionServiceCanceledContextLeavesNoPartialRows(t *testing.T) {
 	}
 }
 
+func TestTransactionServiceRecoverySignalResolvesAtomically(t *testing.T) {
+	pool := incidentTestPool(t)
+	defer pool.Close()
+	truncateIncidentTables(t, pool)
+	service := NewTransactionService(pool, 3*time.Second)
+	base := time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC)
+	match := incidentMatch()
+	created, err := service.Process(context.Background(), incidentSignal("failure", base), match)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := incidentSignal("recovery", base.Add(time.Minute))
+	recovery.Type = signal.TypeNormal
+	recovery.Reason = "Pulled"
+	recovery.ID = signal.StableID(recovery)
+	match.Recovery = true
+	resolved, err := service.Process(context.Background(), recovery, match)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resolved.Attached || resolved.IncidentID != created.IncidentID || resolved.Version != 2 {
+		t.Fatalf("resolved=%#v created=%#v", resolved, created)
+	}
+	var status string
+	var resolvedAt time.Time
+	if err := pool.QueryRow(context.Background(), `SELECT status,resolved_at FROM incidents WHERE id=$1`, created.IncidentID).Scan(&status, &resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+	if status != "resolved" || !resolvedAt.Equal(recovery.OccurredAt) {
+		t.Fatalf("status=%s resolvedAt=%s want=%s", status, resolvedAt, recovery.OccurredAt)
+	}
+	for table, query := range map[string]string{
+		"timeline": `SELECT count(*) FROM timeline_entries WHERE incident_id=$1 AND entry_type='incident.resolved'`,
+		"decision": `SELECT count(*) FROM correlation_decisions WHERE incident_id=$1 AND signal_id=$2`,
+		"outbox":   `SELECT count(*) FROM outbox_events WHERE incident_id=$1 AND event_type='incident.resolved'`,
+	} {
+		var count int
+		var queryErr error
+		if table == "decision" {
+			queryErr = pool.QueryRow(context.Background(), query, created.IncidentID, recovery.ID).Scan(&count)
+		} else {
+			queryErr = pool.QueryRow(context.Background(), query, created.IncidentID).Scan(&count)
+		}
+		if queryErr != nil || count != 1 {
+			t.Fatalf("%s count=%d err=%v", table, count, queryErr)
+		}
+	}
+	replayed, err := service.Process(context.Background(), recovery, match)
+	if err != nil || replayed.Attached || replayed.Version != resolved.Version {
+		t.Fatalf("replayed=%#v err=%v", replayed, err)
+	}
+}
+
 func incidentTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_POSTGRES_DSN")

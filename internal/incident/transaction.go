@@ -128,6 +128,9 @@ func (s *TransactionService) Process(ctx context.Context, item signal.Signal, ma
 		return result, err
 	}
 	if s.metrics != nil {
+		if match.Recovery {
+			s.metrics.resolved.Inc()
+		}
 		if result.Created {
 			s.metrics.created.Inc()
 		}
@@ -168,6 +171,9 @@ func (s *TransactionService) processOnce(ctx context.Context, item signal.Signal
 	}
 	if occurred.IsZero() {
 		occurred = time.Now().UTC()
+	}
+	if match.Recovery {
+		return s.resolveFromSignalTx(txCtx, tx, item, match, occurred)
 	}
 	result := ProcessResult{}
 	err = tx.QueryRow(txCtx, `SELECT id,version FROM incidents WHERE fingerprint=$1 AND lower(status) IN ('open','acknowledged','reopened') FOR UPDATE`, match.Fingerprint).Scan(&result.IncidentID, &result.Version)
@@ -239,6 +245,49 @@ ON CONFLICT(fingerprint) WHERE lower(status) IN ('open','acknowledged','reopened
 		return ProcessResult{}, err
 	}
 	if err := tx.Commit(txCtx); err != nil {
+		return ProcessResult{}, err
+	}
+	return result, nil
+}
+
+func (s *TransactionService) resolveFromSignalTx(ctx context.Context, tx pgx.Tx, item signal.Signal, match correlation.MatchResult, occurred time.Time) (ProcessResult, error) {
+	result := ProcessResult{}
+	err := tx.QueryRow(ctx, `SELECT id,version FROM incidents WHERE fingerprint=$1 AND lower(status) IN ('open','acknowledged','reopened') FOR UPDATE`, match.Fingerprint).Scan(&result.IncidentID, &result.Version)
+	if err == pgx.ErrNoRows {
+		if _, err := tx.Exec(ctx, `UPDATE signals SET resolution_status='matched',root_resource_uid=$2,root_resource_kind=$3,root_resource_namespace=$4,root_resource_name=$5,resolution_error=NULL WHERE id=$1`, item.ID, match.Root.UID, match.Root.Kind, match.Root.Namespace, match.Root.Name); err != nil {
+			return ProcessResult{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return ProcessResult{}, err
+		}
+		return result, nil
+	}
+	if err != nil {
+		return ProcessResult{}, fmt.Errorf("find active incident for recovery: %w", err)
+	}
+	result.Version++
+	result.Attached = true
+	if _, err := tx.Exec(ctx, `INSERT INTO incident_signals(incident_id,signal_id,attached_at) VALUES($1,$2,$3) ON CONFLICT(signal_id) DO NOTHING`, result.IncidentID, item.ID, occurred); err != nil {
+		return ProcessResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE incidents SET status='resolved',resolved_at=$2,updated_at=$2,last_event_at=$2,version=$3 WHERE id=$1`, result.IncidentID, occurred, result.Version); err != nil {
+		return ProcessResult{}, err
+	}
+	evidence, _ := json.Marshal(match.Evidence)
+	if _, err := tx.Exec(ctx, `INSERT INTO timeline_entries(incident_id,idempotency_key,entry_type,actor,message,evidence,occurred_at) VALUES($1,$2,'incident.resolved','system',$3,$4,$5) ON CONFLICT(incident_id,idempotency_key) DO NOTHING`, result.IncidentID, "signal:"+item.ID+":resolved", match.Explain.Reason, evidence, occurred); err != nil {
+		return ProcessResult{}, err
+	}
+	if err := recordDecisionTx(ctx, tx, result.IncidentID, item, match); err != nil {
+		return ProcessResult{}, err
+	}
+	payload, _ := json.Marshal(map[string]any{"incidentID": result.IncidentID, "signalID": item.ID, "fingerprint": match.Fingerprint, "status": IncidentResolved, "version": result.Version})
+	if _, err := tx.Exec(ctx, `INSERT INTO outbox_events(event_id,incident_id,event_type,payload) VALUES($1,$2,'incident.resolved',$3) ON CONFLICT(event_id) DO NOTHING`, "incident.resolved:"+item.ID, result.IncidentID, payload); err != nil {
+		return ProcessResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE signals SET resolution_status='matched',root_resource_uid=$2,root_resource_kind=$3,root_resource_namespace=$4,root_resource_name=$5,resolution_error=NULL WHERE id=$1`, item.ID, match.Root.UID, match.Root.Kind, match.Root.Namespace, match.Root.Name); err != nil {
+		return ProcessResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return ProcessResult{}, err
 	}
 	return result, nil

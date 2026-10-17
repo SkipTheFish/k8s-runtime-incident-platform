@@ -31,7 +31,8 @@ func (r ImagePullBackOffRule) Match(_ context.Context, input EvaluationInput) (M
 		Rule: r.Name(), RuleVersion: r.Version(), ClusterID: input.Signal.ClusterID,
 		RootResourceUID: input.Root.UID, Dimensions: map[string]string{"container": container},
 	}
-	recovery := input.Signal.Source == signal.SourcePrometheus && input.Signal.Type == signal.TypeAlertResolved
+	recovery := (input.Signal.Source == signal.SourcePrometheus && input.Signal.Type == signal.TypeAlertResolved) ||
+		(input.Signal.Source == signal.SourceKubernetes && strings.EqualFold(input.Signal.Reason, "Pulled"))
 	conditions := []string{"reason identifies an image pull failure", "root resource UID is resolved", "container dimension is stable"}
 	if recovery {
 		conditions = append(conditions, "Prometheus alert is resolved")
@@ -47,6 +48,9 @@ func (r ImagePullBackOffRule) Match(_ context.Context, input EvaluationInput) (M
 func isImagePullSignal(item signal.Signal) bool {
 	reason := strings.ToLower(item.Reason)
 	message := strings.ToLower(item.Message)
+	if item.Source == signal.SourceKubernetes && item.Type == signal.TypeNormal && reason == "pulled" {
+		return true
+	}
 	if reason == "imagepullbackoff" || reason == "errimagepull" || strings.Contains(reason, "imagepull") {
 		return true
 	}
