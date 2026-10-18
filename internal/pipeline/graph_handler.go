@@ -146,5 +146,6 @@ func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
 }
 
 func isFailedSchedulingPod(item signal.Signal) bool {
-	return strings.EqualFold(strings.TrimSpace(item.Reason), "FailedScheduling") && strings.EqualFold(strings.TrimSpace(item.Resource.Kind), "Pod")
+	reason := strings.TrimSpace(item.Reason)
+	return (strings.EqualFold(reason, "FailedScheduling") || strings.EqualFold(reason, "Scheduled")) && strings.EqualFold(strings.TrimSpace(item.Resource.Kind), "Pod")
 }

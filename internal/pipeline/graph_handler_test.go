@@ -173,6 +173,30 @@ func TestGraphHandlerUsesOrphanPodAsRootOnlyForFailedScheduling(t *testing.T) {
 		}
 	})
 
+	t.Run("Scheduled recovery reaches evaluator with same Pod root", func(t *testing.T) {
+		store := &memorySignalStore{matched: make(chan resourcegraph.ResourceKey, 1)}
+		handler := NewGraphHandler(store)
+		handler.SetResolver(resolver)
+		handler.SetEvaluator(evaluatorFunc(func(_ context.Context, input correlation.EvaluationInput) (correlation.MatchResult, error) {
+			if input.Root.Kind != "Pod" || input.Root.UID != "pod-1" {
+				t.Fatalf("root=%#v", input.Root)
+			}
+			return correlation.MatchResult{Matched: true, Recovery: true, Root: input.Root, RuleName: "failed-scheduling", RuleVersion: "v1", Fingerprint: "fp"}, nil
+		}))
+		item := signal.Signal{ID: "scheduled", ClusterID: "c", Type: signal.TypeNormal, Reason: "Scheduled", Resource: signal.ObjectReference{APIVersion: "v1", Kind: "Pod", Namespace: "ns", Name: "pending", UID: "pod-1"}}
+		if err := handler.Handle(context.Background(), item); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case root := <-store.matched:
+			if root.UID != "pod-1" {
+				t.Fatalf("matched root=%#v", root)
+			}
+		default:
+			t.Fatal("recovery signal was not marked matched")
+		}
+	})
+
 	t.Run("other orphan Pod remains retryable", func(t *testing.T) {
 		store := &memorySignalStore{matched: make(chan resourcegraph.ResourceKey, 1)}
 		handler := NewGraphHandler(store)
