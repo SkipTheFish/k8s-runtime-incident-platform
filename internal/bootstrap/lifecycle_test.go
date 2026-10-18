@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -26,6 +27,34 @@ func TestComponentErrorCancelsSiblings(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(time.Second):
 		t.Fatal("sibling component was not cancelled")
+	}
+}
+
+func TestCancellationStopsAllManagedComponentClasses(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var stopped atomic.Int32
+	names := []string{"http", "controller-manager", "informer", "worker", "dispatcher"}
+	components := make([]Component, 0, len(names))
+	for _, name := range names {
+		components = append(components, componentFunc{name: name, run: func(ctx context.Context) error {
+			<-ctx.Done()
+			stopped.Add(1)
+			return ctx.Err()
+		}})
+	}
+	done := make(chan error, 1)
+	go func() { done <- runComponents(ctx, 500*time.Millisecond, components) }()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("managed components exceeded graceful shutdown bound")
+	}
+	if got := stopped.Load(); got != int32(len(names)) {
+		t.Fatalf("stopped=%d want=%d", got, len(names))
 	}
 }
 
