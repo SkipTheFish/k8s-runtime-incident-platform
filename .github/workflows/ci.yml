@@ -1,0 +1,69 @@
+name: pull-request-quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        shell: pwsh
+        run: ./hack/ci-gofmt.ps1 -BaseRef '${{ github.base_ref }}'
+      - run: mkdir -p diagnostics && go vet ./... 2>&1 | tee diagnostics/go-vet.log
+      - run: go test ./... 2>&1 | tee diagnostics/go-test.log
+      - run: go test -race ./... 2>&1 | tee diagnostics/go-race.log
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: runtime-console/package-lock.json
+      - working-directory: runtime-console
+        run: npm ci
+      - working-directory: runtime-console
+        run: npm run typecheck
+      - working-directory: runtime-console
+        run: npm run build
+      - uses: azure/setup-helm@v4
+      - shell: pwsh
+        run: ./hack/test-helm-static.ps1
+      - name: Docker builds
+        run: |
+          docker build -t krip/backend:ci .
+          docker build -t krip/frontend:ci runtime-console
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-diagnostics
+          path: diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - shell: pwsh
+        run: ./hack/test-migrations.ps1
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-diagnostics
+          path: deploy/tmp
+          if-no-files-found: ignore
+          retention-days: 7

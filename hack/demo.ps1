@@ -1,4 +1,4 @@
-param([string]$ClusterName = 'krip-demo', [switch]$SkipBuild)
+param([string]$ClusterName = 'krip-demo', [switch]$SkipBuild, [switch]$SkipFaults)
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path "$PSScriptRoot/.."
 $namespace = 'runtime-system'
@@ -12,6 +12,7 @@ foreach ($tool in @('docker','kind','kubectl','helm','openssl')) {
 docker info *> $null
 if (-not (kind get clusters | Where-Object { $_ -eq $ClusterName })) { kind create cluster --name $ClusterName }
 kubectl --context $context create namespace $namespace --dry-run=client -o yaml | kubectl --context $context apply -f -
+kubectl --context $context apply -f (Join-Path $root 'internal/operator/testdata/crds')
 kubectl --context $context -n $namespace apply -f (Join-Path $root 'deploy/test/phase-9/dependencies.yaml')
 kubectl --context $context -n $namespace rollout status deployment/postgres --timeout=180s
 kubectl --context $context -n $namespace create secret generic runtime-incident-platform-database --from-literal=dsn='postgres://runtime:runtime@postgres:5432/runtime_incidents?sslmode=disable' --dry-run=client -o yaml | kubectl --context $context apply -f -
@@ -31,4 +32,6 @@ kind load docker-image --name $ClusterName runtime-incident-platform-backend:loc
 kubectl --context $context -n $namespace apply -f (Join-Path $root 'deploy/demo/webhook-receiver.yaml')
 helm upgrade --install krip $chart --kube-context $context --namespace $namespace --set webhook.enabled=true --set webhook.existingSecret=runtime-incident-platform-webhook --set webhook.tlsSecret=runtime-incident-platform-webhook-tls --set-string webhook.caBundle=$caBundle --set webhook.url=http://webhook-receiver.runtime-system.svc.cluster.local:8080/ --set webhook.allowlist=webhook-receiver.runtime-system.svc.cluster.local --wait --timeout 5m
 kubectl --context $context -n $namespace wait --for=condition=Available deployment --all --timeout=180s
-& (Join-Path $PSScriptRoot 'demo-faults.ps1') -ClusterName $ClusterName -Context $context -SystemNamespace $namespace
+if (-not $SkipFaults) {
+    & (Join-Path $PSScriptRoot 'demo-faults.ps1') -ClusterName $ClusterName -Context $context -SystemNamespace $namespace
+}
