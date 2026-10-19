@@ -1,0 +1,39 @@
+{
+  "profile": "full",
+  "goVersion": "go1.26.9",
+  "goos": "windows",
+  "goarch": "amd64",
+  "workers": 8,
+  "nodes": 500,
+  "pods": 10000,
+  "signals": 100000,
+  "activeAlerts": 2000,
+  "uniqueIncidents": 10000,
+  "duplicateSignals": 90000,
+  "dedupeRatio": 0.9,
+  "throughputPerSecond": 710666.8969227413,
+  "latencyP50Micros": 5303,
+  "latencyP95Micros": 8031,
+  "latencyP99Micros": 10687,
+  "maximumQueueDepth": 4096,
+  "backlogRecoveryMillis": 4,
+  "wallTimeMillis": 140,
+  "allocatedBytes": 219922344,
+  "peakHeapBytes": 27308936,
+  "cpu": {
+    "measured": false,
+    "reason": "portable Go replay records wall time; process CPU peak requires the release environment collector"
+  },
+  "postgresql": {
+    "measured": false,
+    "reason": "synthetic replay does not connect to PostgreSQL"
+  },
+  "webhook": {
+    "measured": false,
+    "reason": "synthetic replay does not deliver external webhooks"
+  },
+  "notes": [
+    "full profile models 100k signals as the daily logical volume",
+    "CPU is represented by wall time and Go runtime allocation data; production CPU/DB/Webhook metrics require the release environment"
+  ]
+}
