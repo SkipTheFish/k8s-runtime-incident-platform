@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -34,6 +35,10 @@ type Config struct {
 	HTTPRequestTimeout time.Duration
 	HTTPMaxBodyBytes   int
 	AdminToken         string
+	DiagnosticsAddr    string
+	DiagnosticsToken   string
+	OTLPEndpoint       string
+	OTELServiceName    string
 	WebhookWorkers     int
 	Webhook            struct {
 		TargetName     string
@@ -131,6 +136,23 @@ func load(get func(string) string) (*Config, error) {
 		return nil, err
 	}
 	cfg.AdminToken = get("ADMIN_TOKEN")
+	cfg.DiagnosticsAddr = strings.TrimSpace(get("DIAGNOSTICS_ADDR"))
+	cfg.DiagnosticsToken = get("DIAGNOSTICS_TOKEN")
+	if cfg.DiagnosticsAddr != "" {
+		if _, _, splitErr := net.SplitHostPort(cfg.DiagnosticsAddr); splitErr != nil {
+			return nil, fieldError("DIAGNOSTICS_ADDR", "must be in host:port form")
+		}
+		if cfg.DiagnosticsToken == "" {
+			return nil, fieldError("DIAGNOSTICS_TOKEN", "is required when DIAGNOSTICS_ADDR is configured")
+		}
+	}
+	cfg.OTLPEndpoint = strings.TrimSpace(get("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	if cfg.OTLPEndpoint != "" {
+		if cfg.OTLPEndpoint, err = parseHTTPURL("OTEL_EXPORTER_OTLP_ENDPOINT", cfg.OTLPEndpoint, ""); err != nil {
+			return nil, err
+		}
+	}
+	cfg.OTELServiceName = valueOrDefault(get("OTEL_SERVICE_NAME"), cfg.App.Name)
 	if cfg.KubernetesEnabled, err = parseBool("KUBERNETES_ENABLED", get("KUBERNETES_ENABLED"), true); err != nil {
 		return nil, err
 	}

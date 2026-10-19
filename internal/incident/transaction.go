@@ -10,6 +10,10 @@ import (
 	"observability-platform/internal/correlation"
 	"observability-platform/internal/signal"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -121,12 +125,16 @@ func (s *TransactionService) WithMetrics(metrics *Metrics) *TransactionService {
 }
 
 func (s *TransactionService) Process(ctx context.Context, item signal.Signal, match correlation.MatchResult) (ProcessResult, error) {
+	ctx, span := otel.Tracer("observability-platform/incident").Start(ctx, "incident.transaction")
+	defer span.End()
+	span.SetAttributes(attribute.String("signal.id", item.ID), attribute.String("correlation.rule", match.RuleName), attribute.String("incident.fingerprint", match.Fingerprint), attribute.Bool("incident.recovery", match.Recovery))
 	result, err := RetryTransaction(ctx, s.retry, func(ctx context.Context) (ProcessResult, error) {
 		return s.processOnce(ctx, item, match)
 	})
 	if err != nil || !result.Attached {
 		return result, err
 	}
+	span.SetAttributes(attribute.Int64("incident.id", result.IncidentID), attribute.Int64("incident.version", result.Version))
 	if s.metrics != nil {
 		if match.Recovery {
 			s.metrics.resolved.Inc()
@@ -237,7 +245,7 @@ ON CONFLICT(fingerprint) WHERE lower(status) IN ('open','acknowledged','reopened
 	if err := recordDecisionTx(txCtx, tx, result.IncidentID, item, match); err != nil {
 		return ProcessResult{}, err
 	}
-	payload, _ := json.Marshal(map[string]any{"incidentID": result.IncidentID, "signalID": item.ID, "fingerprint": match.Fingerprint, "version": result.Version})
+	payload, _ := json.Marshal(map[string]any{"incidentID": result.IncidentID, "signalID": item.ID, "fingerprint": match.Fingerprint, "version": result.Version, "traceID": traceIDFromContext(ctx), "spanID": spanIDFromContext(ctx)})
 	if _, err := tx.Exec(txCtx, `INSERT INTO outbox_events(event_id,incident_id,event_type,payload) VALUES($1,$2,$3,$4) ON CONFLICT(event_id) DO NOTHING`, entryType+":"+item.ID, result.IncidentID, entryType, payload); err != nil {
 		return ProcessResult{}, err
 	}
@@ -280,7 +288,7 @@ func (s *TransactionService) resolveFromSignalTx(ctx context.Context, tx pgx.Tx,
 	if err := recordDecisionTx(ctx, tx, result.IncidentID, item, match); err != nil {
 		return ProcessResult{}, err
 	}
-	payload, _ := json.Marshal(map[string]any{"incidentID": result.IncidentID, "signalID": item.ID, "fingerprint": match.Fingerprint, "status": IncidentResolved, "version": result.Version})
+	payload, _ := json.Marshal(map[string]any{"incidentID": result.IncidentID, "signalID": item.ID, "fingerprint": match.Fingerprint, "status": IncidentResolved, "version": result.Version, "traceID": traceIDFromContext(ctx), "spanID": spanIDFromContext(ctx)})
 	if _, err := tx.Exec(ctx, `INSERT INTO outbox_events(event_id,incident_id,event_type,payload) VALUES($1,$2,'incident.resolved',$3) ON CONFLICT(event_id) DO NOTHING`, "incident.resolved:"+item.ID, result.IncidentID, payload); err != nil {
 		return ProcessResult{}, err
 	}
@@ -291,6 +299,22 @@ func (s *TransactionService) resolveFromSignalTx(ctx context.Context, tx pgx.Tx,
 		return ProcessResult{}, err
 	}
 	return result, nil
+}
+
+func traceIDFromContext(ctx context.Context) string {
+	spanContext := trace.SpanContextFromContext(ctx)
+	if !spanContext.IsValid() {
+		return ""
+	}
+	return spanContext.TraceID().String()
+}
+
+func spanIDFromContext(ctx context.Context) string {
+	spanContext := trace.SpanContextFromContext(ctx)
+	if !spanContext.IsValid() {
+		return ""
+	}
+	return spanContext.SpanID().String()
 }
 
 func persistSignalTx(ctx context.Context, tx pgx.Tx, item signal.Signal) error {

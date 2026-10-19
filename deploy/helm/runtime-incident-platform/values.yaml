@@ -25,6 +25,13 @@ config:
   prometheusUrl: http://prometheus:9090
   lokiUrl: http://loki:3100
   tempoUrl: http://tempo:3200
+  otlpEndpoint: ""
+  otelServiceName: runtime-incident-platform
+diagnostics:
+  enabled: false
+  address: 127.0.0.1:6060
+  existingSecret: ""
+  tokenKey: token
 postgres:
   existingSecret: runtime-incident-platform-database
   dsnKey: dsn

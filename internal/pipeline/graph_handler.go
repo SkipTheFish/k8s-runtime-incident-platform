@@ -13,6 +13,9 @@ import (
 	"observability-platform/internal/incident"
 	"observability-platform/internal/resourcegraph"
 	"observability-platform/internal/signal"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type SignalStore interface {
@@ -64,6 +67,9 @@ func (h *GraphHandler) SetCorrelationMetrics(metrics *CorrelationMetrics) { h.me
 func (h *GraphHandler) SetIncidentProcessor(processor IncidentProcessor)  { h.incidents = processor }
 
 func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
+	ctx, span := otel.Tracer("observability-platform/pipeline").Start(ctx, "signal.process")
+	defer span.End()
+	span.SetAttributes(attribute.String("signal.id", item.ID), attribute.String("signal.source", string(item.Source)), attribute.String("signal.type", string(item.Type)), attribute.String("resource.uid", item.Resource.UID))
 	if err := h.store.Persist(ctx, item); err != nil && !errors.Is(err, ErrDuplicate) {
 		return err
 	}

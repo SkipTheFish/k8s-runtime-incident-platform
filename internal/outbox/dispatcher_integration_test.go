@@ -105,6 +105,19 @@ func TestDispatcherConcurrentClaimsDeliverEachEventOnce(t *testing.T) {
 	}
 }
 
+func TestTraceLinkExtractsOnlyValidTraceID(t *testing.T) {
+	want := "4bf92f3577b34da6a3ce929d0e0e4736"
+	got := traceLink([]byte(`{"traceID":"` + want + `","spanID":"00f067aa0ba902b7"}`))
+	if !got.IsValid() || got.TraceID().String() != want || !got.IsRemote() {
+		t.Fatalf("span context=%v", got)
+	}
+	for _, payload := range [][]byte{nil, []byte(`{}`), []byte(`{"traceID":"invalid"}`), []byte(`not-json`)} {
+		if traceLink(payload).IsValid() {
+			t.Fatalf("invalid payload produced trace link: %s", payload)
+		}
+	}
+}
+
 func seedOutboxBatch(t *testing.T, pool *pgxpool.Pool, count int) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `TRUNCATE webhook_deliveries,outbox_events,timeline_entries,correlation_decisions,incident_signals,incidents,dead_letter_events,processed_events,signals RESTART IDENTITY CASCADE`); err != nil {

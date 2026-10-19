@@ -33,6 +33,14 @@ func TestLoad(t *testing.T) {
 		{name: "invalid cleanup batch", values: required(secretDSN, "RESOURCE_GRAPH_CLEANUP_BATCH", "0"), wantError: "RESOURCE_GRAPH_CLEANUP_BATCH"},
 		{name: "invalid URL", values: required(secretDSN, "LOKI_URL", "http://"), wantError: "LOKI_URL"},
 		{name: "invalid boolean", values: required(secretDSN, "KUBERNETES_ENABLED", "sometimes"), wantError: "KUBERNETES_ENABLED"},
+		{name: "diagnostics requires token", values: required(secretDSN, "DIAGNOSTICS_ADDR", "127.0.0.1:6060"), wantError: "DIAGNOSTICS_TOKEN"},
+		{name: "invalid diagnostics address", values: map[string]string{"POSTGRES_DSN": secretDSN, "CLUSTER_ID": "local", "DIAGNOSTICS_ADDR": "localhost", "DIAGNOSTICS_TOKEN": "secret"}, wantError: "DIAGNOSTICS_ADDR"},
+		{name: "invalid OTLP endpoint", values: required(secretDSN, "OTEL_EXPORTER_OTLP_ENDPOINT", "tempo:4318"), wantError: "OTEL_EXPORTER_OTLP_ENDPOINT"},
+		{name: "diagnostics and tracing", values: map[string]string{"POSTGRES_DSN": secretDSN, "CLUSTER_ID": "local", "DIAGNOSTICS_ADDR": "127.0.0.1:6060", "DIAGNOSTICS_TOKEN": "diagnostic-secret", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://tempo:4318", "OTEL_SERVICE_NAME": "krip-test"}, check: func(t *testing.T, cfg *Config) {
+			if cfg.DiagnosticsAddr != "127.0.0.1:6060" || cfg.DiagnosticsToken == "" || cfg.OTLPEndpoint != "http://tempo:4318" || cfg.OTELServiceName != "krip-test" {
+				t.Fatalf("observability config=%+v", cfg)
+			}
+		}},
 	}
 
 	for _, tt := range tests {

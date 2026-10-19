@@ -27,6 +27,10 @@ spec:
             - name: WEBHOOK_SECRET
               valueFrom: {secretKeyRef: {name: {{ required "webhook.existingSecret is required when webhook is enabled" .Values.webhook.existingSecret }}, key: {{ .Values.webhook.secretKey }}}}
             {{- end }}
+            {{- if .Values.diagnostics.enabled }}
+            - name: DIAGNOSTICS_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ required "diagnostics.existingSecret is required when diagnostics are enabled" .Values.diagnostics.existingSecret }}, key: {{ .Values.diagnostics.tokenKey }}}}
+            {{- end }}
           ports: [{name: http, containerPort: 8080}, {name: webhook, containerPort: 9443}]
           startupProbe: {httpGet: {path: /livez, port: http}, failureThreshold: 30, periodSeconds: 2}
           livenessProbe: {httpGet: {path: /livez, port: http}, periodSeconds: 10}

@@ -2,10 +2,15 @@ package outbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Deliverer interface {
@@ -82,6 +87,8 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 }
 
 func (d *Dispatcher) ProcessOnce(ctx context.Context) (int, error) {
+	ctx, batchSpan := otel.Tracer("observability-platform/outbox").Start(ctx, "outbox.claim-and-dispatch")
+	defer batchSpan.End()
 	events, err := d.store.ClaimBatch(ctx, d.config.BatchSize, d.config.Lease)
 	if err != nil {
 		return 0, err
@@ -89,12 +96,19 @@ func (d *Dispatcher) ProcessOnce(ctx context.Context) (int, error) {
 	for _, event := range events {
 		started := d.now()
 		deliveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.config.DeliveryTimeout)
+		var spanOptions []trace.SpanStartOption
+		if linked := traceLink(event.Payload); linked.IsValid() {
+			spanOptions = append(spanOptions, trace.WithLinks(trace.Link{SpanContext: linked}))
+		}
+		deliveryCtx, deliverySpan := otel.Tracer("observability-platform/outbox").Start(deliveryCtx, "webhook.deliver", spanOptions...)
+		deliverySpan.SetAttributes(attribute.String("outbox.event_id", event.EventID), attribute.Int64("incident.id", event.IncidentID), attribute.Int("outbox.attempt", event.Attempt))
 		if len(event.Payload) > MaxPayloadBytes {
 			err = fmt.Errorf("outbox payload exceeds %d bytes", MaxPayloadBytes)
 		} else {
 			err = d.deliverer.Deliver(deliveryCtx, event)
 		}
 		cancel()
+		deliverySpan.End()
 		if err != nil {
 			retryable, status, summary, retryAfter := deliveryFailure(err)
 			deadLetter := !retryable || event.Attempt >= d.config.MaxAttempts
@@ -117,6 +131,25 @@ func (d *Dispatcher) ProcessOnce(ctx context.Context) (int, error) {
 		}
 	}
 	return len(events), nil
+}
+
+func traceLink(payload []byte) trace.SpanContext {
+	var envelope struct {
+		TraceID string `json:"traceID"`
+		SpanID  string `json:"spanID"`
+	}
+	if json.Unmarshal(payload, &envelope) != nil || envelope.TraceID == "" || envelope.SpanID == "" {
+		return trace.SpanContext{}
+	}
+	traceID, err := trace.TraceIDFromHex(envelope.TraceID)
+	if err != nil {
+		return trace.SpanContext{}
+	}
+	spanID, err := trace.SpanIDFromHex(envelope.SpanID)
+	if err != nil {
+		return trace.SpanContext{}
+	}
+	return trace.NewSpanContext(trace.SpanContextConfig{TraceID: traceID, SpanID: spanID, TraceFlags: trace.FlagsSampled, Remote: true})
 }
 
 func (d *Dispatcher) backoff(attempt int, retryAfter time.Duration) time.Duration {

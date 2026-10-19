@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	obsv1 "observability-platform/api/v1"
 	"observability-platform/internal/alert"
@@ -104,6 +105,12 @@ func New(cfg *config.Config) (*App, error) {
 		}
 		app.components = append(app.components, components...)
 	}
+	if cfg.DiagnosticsAddr != "" {
+		diagnostics := newDiagnosticsServer(cfg.DiagnosticsAddr, cfg.DiagnosticsToken)
+		app.components = append(app.components, componentFunc{name: "internal diagnostics", run: func(ctx context.Context) error {
+			return runManagedHTTP(ctx, diagnostics, cfg.App.ShutdownTimeout)
+		}})
+	}
 	app.components = append(app.components, componentFunc{name: "http server", run: app.runHTTP})
 	return app, nil
 }
@@ -114,8 +121,12 @@ func (a *App) Run(ctx context.Context) error {
 }
 
 func (a *App) runHTTP(ctx context.Context) error {
+	return runManagedHTTP(ctx, a.server, a.cfg.App.ShutdownTimeout)
+}
+
+func runManagedHTTP(ctx context.Context, server *http.Server, shutdownTimeout time.Duration) error {
 	result := make(chan error, 1)
-	go func() { result <- a.server.ListenAndServe() }()
+	go func() { result <- server.ListenAndServe() }()
 	select {
 	case err := <-result:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -123,9 +134,9 @@ func (a *App) runHTTP(ctx context.Context) error {
 		}
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.App.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		if err := a.server.Shutdown(shutdownCtx); err != nil {
+		if err := server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown HTTP server: %w", err)
 		}
 		return nil
