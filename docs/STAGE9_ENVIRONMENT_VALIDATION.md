@@ -2,7 +2,7 @@
 
 以下实现与静态校验已纳入仓库，但必须在具备 Docker 引擎、kind、kubectl、Helm、OpenSSL 和镜像拉取能力的环境中完成最终验收。
 
-## 待执行
+## 自动化环境待执行
 
 1. `docker build -t runtime-incident-platform-backend:local .`，确认非 root 运行和 `/livez` 健康检查。
 2. `docker build -t runtime-incident-platform-frontend:local runtime-console`，确认静态资源、SPA 回退和 `/api` 代理。
@@ -21,4 +21,6 @@ pwsh -NoProfile -File hack/test-k3s.ps1 -Context <kube-context> -Namespace runti
 
 该脚本检查 Pod Ready、`/livez`、`/readyz`、主资源/status RBAC、三类 Incident、Context 完整性和带签名头的 Webhook 成功投递。
 
-上述检查未执行前，阶段九的“真实环境门禁”状态为待验证，不应声明生产就绪。
+2026-10-16 已在三节点 k3s 集群按上述入口完成实际验收，并在修复 FailedScheduling 孤立 Pod 根资源解析后复测通过。已观察到三类 Incident、完整 Context/Decision/Timeline、签名 Webhook 以及恢复后的 Resolved 状态。
+
+该结果关闭阶段九真实业务闭环门禁，但不等价于 GitHub Actions 的 kind 流水线证据。上方 Docker Compose、kind 幂等安装/清理仍纳入阶段十发布清单，未完成前不声明生产就绪。
