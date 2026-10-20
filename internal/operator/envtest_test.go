@@ -225,6 +225,33 @@ func TestOperatorReconcilersWithEnvtest(t *testing.T) {
 			return kubeClient.Get(ctx, types.NamespacedName{Name: "obs-tenant-registered"}, &namespace) == nil &&
 				kubeClient.Get(ctx, types.NamespacedName{Name: "observability-tenant-admin", Namespace: namespace.Name}, &role) == nil
 		})
+
+		roleKey := types.NamespacedName{Name: "observability-tenant-admin", Namespace: "obs-tenant-registered"}
+		var originalRole rbacv1.Role
+		if err := kubeClient.Get(ctx, roleKey, &originalRole); err != nil {
+			t.Fatal(err)
+		}
+		originalUID := originalRole.UID
+		if err := kubeClient.Delete(ctx, &originalRole); err != nil {
+			t.Fatal(err)
+		}
+		waitForEnvtest(t, func() bool {
+			var recreated rbacv1.Role
+			return kubeClient.Get(ctx, roleKey, &recreated) == nil && recreated.UID != originalUID && len(recreated.Rules) == 2
+		})
+
+		var drifted rbacv1.Role
+		if err := kubeClient.Get(ctx, roleKey, &drifted); err != nil {
+			t.Fatal(err)
+		}
+		drifted.Rules = nil
+		if err := kubeClient.Update(ctx, &drifted); err != nil {
+			t.Fatal(err)
+		}
+		waitForEnvtest(t, func() bool {
+			var repaired rbacv1.Role
+			return kubeClient.Get(ctx, roleKey, &repaired) == nil && len(repaired.Rules) == 2
+		})
 	})
 }
 
