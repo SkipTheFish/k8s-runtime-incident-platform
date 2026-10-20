@@ -215,11 +215,8 @@ func kubernetesComponents(cfg *config.Config, readiness *handler.Readiness, rule
 	if err != nil {
 		return nil, fmt.Errorf("create controller manager: %w", err)
 	}
-	if err := (&operator.AlertPolicyReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Repo: operator.NewPGRepository()}).SetupWithManager(mgr); err != nil {
-		return nil, fmt.Errorf("register AlertPolicy controller: %w", err)
-	}
-	if err := (&operator.CorrelationPolicyReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Registry: ruleRegistry}).SetupWithManager(mgr); err != nil {
-		return nil, fmt.Errorf("register CorrelationPolicy controller: %w", err)
+	if err := operator.RegisterControllers(mgr, ruleRegistry, operator.NewPGRepository()); err != nil {
+		return nil, err
 	}
 	if err := (&obsv1.AlertPolicy{}).SetupWebhookWithManager(mgr); err != nil {
 		return nil, fmt.Errorf("register AlertPolicy webhook: %w", err)

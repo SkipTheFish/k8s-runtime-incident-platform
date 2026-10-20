@@ -8,11 +8,11 @@
 | Helm Chart | `runtime-incident-platform` `0.1.0` | 已固定 |
 | Chart appVersion | `0.1.0` | 已固定 |
 | 数据库迁移 | `00011_outbox_replay_audit.sql` | 最新版本 |
-| Backend 镜像 | repository/tag 待发布流水线确定 | 阻塞 |
+| Backend 镜像 | `<pending>` | 阻塞 |
 | Backend digest | `sha256:<pending>` | 阻塞 |
-| Frontend 镜像 | repository/tag 待发布流水线确定 | 阻塞 |
+| Frontend 镜像 | `<pending>` | 阻塞 |
 | Frontend digest | `sha256:<pending>` | 阻塞 |
-| Git commit | 以发布候选 HEAD 为准 | 打 tag 前记录 |
+| Git commit | `<pending>` | 阻塞 |
 
 镜像必须按不可变 digest 部署和记录；不得用本地 image ID、可变 `latest` 或未经 Registry 拉取验证的值代替。
 

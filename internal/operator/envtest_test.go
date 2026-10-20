@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"testing"
+	"time"
 
 	obsv1 "observability-platform/api/v1"
 	"observability-platform/internal/correlation"
@@ -19,6 +20,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 type envtestRepository struct{}
@@ -174,6 +176,68 @@ func TestOperatorReconcilersWithEnvtest(t *testing.T) {
 			t.Fatal("compiled rule not published to registry")
 		}
 	})
+
+	t.Run("production registration starts target and tenant controllers", func(t *testing.T) {
+		manager, err := ctrl.NewManager(config, ctrl.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := RegisterControllers(manager, correlation.NewRegistry(), envtestRepository{}); err != nil {
+			t.Fatal(err)
+		}
+		managerContext, cancelManager := context.WithCancel(context.Background())
+		managerErrors := make(chan error, 1)
+		go func() { managerErrors <- manager.Start(managerContext) }()
+		cacheContext, cancelCacheWait := context.WithTimeout(ctx, 15*time.Second)
+		defer cancelCacheWait()
+		if !manager.GetCache().WaitForCacheSync(cacheContext) {
+			cancelManager()
+			t.Fatal("manager cache did not sync")
+		}
+		t.Cleanup(func() {
+			cancelManager()
+			select {
+			case err := <-managerErrors:
+				if err != nil {
+					t.Errorf("stop manager: %v", err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Error("manager did not stop")
+			}
+		})
+
+		target := &obsv1.ObservabilityTarget{ObjectMeta: metav1.ObjectMeta{Name: "registered-api", Namespace: "targets"}, Spec: obsv1.ObservabilityTargetSpec{TenantID: "tenant-b", ServiceName: "api", Namespace: "workload", Selector: map[string]string{"app": "api"}, PortName: "metrics"}}
+		if err := kubeClient.Create(ctx, target); err != nil {
+			t.Fatal(err)
+		}
+		waitForEnvtest(t, func() bool {
+			var stored obsv1.ObservabilityTarget
+			return kubeClient.Get(ctx, client.ObjectKeyFromObject(target), &stored) == nil && stored.Status.Synced && stored.Status.ObservedGeneration == stored.Generation
+		})
+
+		tenant := &obsv1.ObserveTenant{ObjectMeta: metav1.ObjectMeta{Name: "registered-tenant", Namespace: "policies"}, Spec: obsv1.ObserveTenantSpec{TenantID: "registered", Owner: "platform", Enabled: true}}
+		if err := kubeClient.Create(ctx, tenant); err != nil {
+			t.Fatal(err)
+		}
+		waitForEnvtest(t, func() bool {
+			var namespace corev1.Namespace
+			var role rbacv1.Role
+			return kubeClient.Get(ctx, types.NamespacedName{Name: "obs-tenant-registered"}, &namespace) == nil &&
+				kubeClient.Get(ctx, types.NamespacedName{Name: "observability-tenant-admin", Namespace: namespace.Name}, &role) == nil
+		})
+	})
+}
+
+func waitForEnvtest(t *testing.T, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for controller reconciliation")
 }
 
 func assertControllerOwner(t *testing.T, owners []metav1.OwnerReference, name string) {

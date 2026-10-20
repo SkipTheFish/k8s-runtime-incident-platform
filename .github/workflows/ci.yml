@@ -21,9 +21,20 @@ jobs:
       - name: gofmt
         shell: pwsh
         run: ./hack/ci-gofmt.ps1 -BaseRef '${{ github.base_ref }}'
+      - name: PowerShell syntax
+        shell: pwsh
+        run: ./hack/test-powershell-syntax.ps1
       - run: mkdir -p diagnostics && go vet ./... 2>&1 | tee diagnostics/go-vet.log
+      - name: Install envtest assets
+        run: echo "KUBEBUILDER_ASSETS=$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.2 use 1.36.x --bin-dir .cache/envtest -p path)" >> "$GITHUB_ENV"
+      - name: Run envtest through production registration
+        run: go test ./internal/operator -run Envtest -count=1 2>&1 | tee diagnostics/envtest.log
       - run: go test ./... 2>&1 | tee diagnostics/go-test.log
+        env:
+          KUBEBUILDER_ASSETS: ""
       - run: go test -race ./... 2>&1 | tee diagnostics/go-race.log
+        env:
+          KUBEBUILDER_ASSETS: ""
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -49,6 +60,17 @@ jobs:
           path: diagnostics
           if-no-files-found: ignore
           retention-days: 7
+
+  powershell-compat:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse scripts with Windows PowerShell 5.1
+        shell: powershell
+        run: ./hack/test-powershell-syntax.ps1
+      - name: Validate release evidence with Windows PowerShell 5.1
+        shell: powershell
+        run: ./hack/test-release-evidence.ps1
 
   migrations:
     runs-on: ubuntu-latest

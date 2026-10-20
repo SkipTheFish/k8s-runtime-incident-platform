@@ -14,10 +14,10 @@ if ($chartText -notmatch '(?m)^version:\s+0\.1\.0\s*$' -or $chartText -notmatch 
 }
 $latestMigration = Get-ChildItem (Join-Path $root 'migrations') -Filter '*.sql' | Sort-Object Name | Select-Object -Last 1 -ExpandProperty Name
 if ($latestMigration -ne '00011_outbox_replay_audit.sql') { throw "unexpected latest migration: $latestMigration" }
-$acceptanceText = Get-Content -Raw -LiteralPath $acceptance
+$acceptanceText = Get-Content -Raw -Encoding UTF8 -LiteralPath $acceptance
 $pending = ([regex]::Matches($acceptanceText, '(?m)^- \[ \] ')).Count
 if ($RequireComplete -and $pending -gt 0) { throw "$pending release acceptance item(s) are still pending" }
-if ($RequireComplete -and (Get-Content -Raw -LiteralPath $manifest) -match '<pending>|待发布流水线确定|打 tag 前记录') {
+if ($RequireComplete -and (Get-Content -Raw -Encoding UTF8 -LiteralPath $manifest) -match '<pending>') {
     throw 'release manifest still contains unresolved image or commit identity'
 }
 Write-Host "Release evidence structure passed; pending acceptance items: $pending"
