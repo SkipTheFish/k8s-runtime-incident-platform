@@ -41,9 +41,9 @@ spec:
     kubectl --context $Context -n $Namespace rollout status deployment/image-pull --timeout="$($TimeoutSeconds)s"
     $resolved = Wait-KripIncident -Context $Context -SystemNamespace $SystemNamespace -Namespace $Namespace -Category 'image-pull-backoff' -Status 'resolved' -IncidentID $incident.id -TimeoutSeconds $TimeoutSeconds
     Assert-KripIncidentEvidence -Context $Context -SystemNamespace $SystemNamespace -Incident $resolved -MinimumDecisions 2 -TimelineType 'incident.resolved' | Out-Null
-    Assert-KripWebhookDelivery -Context $Context -SystemNamespace $SystemNamespace
+    Assert-KripWebhookDelivery -Context $Context -SystemNamespace $SystemNamespace -IncidentID $incident.id
     Write-Host "ImagePullBackOff E2E passed: Incident #$($incident.id)"
 } catch {
-    Save-KripE2EDiagnostics -Context $Context -SystemNamespace $SystemNamespace -Scenario 'image-pull' -Root $root
+    Save-KripE2EDiagnostics -Context $Context -SystemNamespace $SystemNamespace -Scenario 'image-pull' -Root $root -ErrorRecord $_
     throw
 }

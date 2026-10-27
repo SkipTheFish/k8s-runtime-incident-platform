@@ -30,10 +30,10 @@ spec:
     kubectl --context $Context -n $Namespace wait pod/pending --for=condition=Ready --timeout="$($TimeoutSeconds)s"
     $resolved = Wait-KripIncident -Context $Context -SystemNamespace $SystemNamespace -Namespace $Namespace -Category 'failed-scheduling' -Status 'resolved' -IncidentID $incident.id -TimeoutSeconds $TimeoutSeconds
     Assert-KripIncidentEvidence -Context $Context -SystemNamespace $SystemNamespace -Incident $resolved -MinimumDecisions 2 -TimelineType 'incident.resolved' | Out-Null
-    Assert-KripWebhookDelivery -Context $Context -SystemNamespace $SystemNamespace
+    Assert-KripWebhookDelivery -Context $Context -SystemNamespace $SystemNamespace -IncidentID $incident.id
     Write-Host "FailedScheduling E2E passed: Incident #$($incident.id)"
 } catch {
-    Save-KripE2EDiagnostics -Context $Context -SystemNamespace $SystemNamespace -Scenario 'failed-scheduling' -Root $root
+    Save-KripE2EDiagnostics -Context $Context -SystemNamespace $SystemNamespace -Scenario 'failed-scheduling' -Root $root -ErrorRecord $_
     throw
 } finally {
     kubectl --context $Context label nodes --all "$labelKey-" --overwrite *> $null
