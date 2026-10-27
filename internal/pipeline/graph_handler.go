@@ -86,27 +86,27 @@ func (h *GraphHandler) Handle(ctx context.Context, item signal.Signal) error {
 	if resolver == nil {
 		return &ResolutionError{Cause: errors.New("resource informer indexes are not ready"), retryable: true}
 	}
-	result, err := resolver.Resolve(resourcegraph.ResourceKey{ClusterID: item.ClusterID, APIVersion: item.Resource.APIVersion, Kind: item.Resource.Kind, Namespace: item.Resource.Namespace, Name: item.Resource.Name, UID: item.Resource.UID})
+	resourceKey := resourcegraph.ResourceKey{ClusterID: item.ClusterID, APIVersion: item.Resource.APIVersion, Kind: item.Resource.Kind, Namespace: item.Resource.Namespace, Name: item.Resource.Name, UID: item.Resource.UID}
+	var result resourcegraph.RootResolutionResult
+	var err error
+	if isFailedSchedulingPod(item) {
+		// Keep both FailedScheduling and Scheduled on the Pod root. Once a Pod is
+		// scheduled, the generic resolver follows spec.nodeName to the Node. That
+		// changes the correlation fingerprint and prevents the Scheduled event from
+		// resolving the incident created while the same Pod was pending.
+		result.Root = resourcegraph.ResourceNode{Key: resourceKey}
+	} else {
+		result, err = resolver.Resolve(resourceKey)
+	}
 	if err != nil {
-		if errors.Is(err, resourcegraph.ErrOrphanPod) && isFailedSchedulingPod(item) {
-			result.Root = resourcegraph.ResourceNode{Key: resourcegraph.ResourceKey{
-				ClusterID:  item.ClusterID,
-				APIVersion: item.Resource.APIVersion,
-				Kind:       item.Resource.Kind,
-				Namespace:  item.Resource.Namespace,
-				Name:       item.Resource.Name,
-				UID:        item.Resource.UID,
-			}}
-		} else {
-			retryable := errors.Is(err, resourcegraph.ErrResourceNotFound) || errors.Is(err, resourcegraph.ErrOwnerNotFound) || errors.Is(err, resourcegraph.ErrOrphanPod)
-			classified := &ResolutionError{Cause: fmt.Errorf("resolve signal root: %w", err), retryable: retryable}
-			if !retryable {
-				if updateErr := h.store.MarkUnmatched(ctx, item.ID, classified.Error()); updateErr != nil {
-					return updateErr
-				}
+		retryable := errors.Is(err, resourcegraph.ErrResourceNotFound) || errors.Is(err, resourcegraph.ErrOwnerNotFound) || errors.Is(err, resourcegraph.ErrOrphanPod)
+		classified := &ResolutionError{Cause: fmt.Errorf("resolve signal root: %w", err), retryable: retryable}
+		if !retryable {
+			if updateErr := h.store.MarkUnmatched(ctx, item.ID, classified.Error()); updateErr != nil {
+				return updateErr
 			}
-			return classified
 		}
+		return classified
 	}
 	h.mu.RLock()
 	evaluator := h.evaluator

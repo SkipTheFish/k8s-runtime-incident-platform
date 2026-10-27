@@ -138,11 +138,18 @@ func TestGraphHandlerKeepsUIDLessSignalAsUnmatched(t *testing.T) {
 
 func TestGraphHandlerUsesOrphanPodAsRootOnlyForFailedScheduling(t *testing.T) {
 	podIndexer := newGraphIndexer()
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pending", Namespace: "ns", UID: types.UID("pod-1")}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pending", Namespace: "ns", UID: types.UID("pod-1")}, Spec: corev1.PodSpec{NodeName: "worker-1"}}
 	if err := podIndexer.Add(pod); err != nil {
 		t.Fatal(err)
 	}
-	resolver := resourcegraph.NewResolver([]resourcegraph.IndexedResource{{Indexer: podIndexer, GVK: schema.FromAPIVersionAndKind("v1", "Pod")}}, 8)
+	nodeIndexer := newGraphIndexer()
+	if err := nodeIndexer.Add(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1", UID: types.UID("node-1")}}); err != nil {
+		t.Fatal(err)
+	}
+	resolver := resourcegraph.NewResolver([]resourcegraph.IndexedResource{
+		{Indexer: podIndexer, GVK: schema.FromAPIVersionAndKind("v1", "Pod")},
+		{Indexer: nodeIndexer, GVK: schema.FromAPIVersionAndKind("v1", "Node")},
+	}, 8)
 
 	t.Run("FailedScheduling reaches evaluator with Pod root", func(t *testing.T) {
 		store := &memorySignalStore{matched: make(chan resourcegraph.ResourceKey, 1)}
@@ -173,7 +180,7 @@ func TestGraphHandlerUsesOrphanPodAsRootOnlyForFailedScheduling(t *testing.T) {
 		}
 	})
 
-	t.Run("Scheduled recovery reaches evaluator with same Pod root", func(t *testing.T) {
+	t.Run("Scheduled recovery keeps same Pod root after node assignment", func(t *testing.T) {
 		store := &memorySignalStore{matched: make(chan resourcegraph.ResourceKey, 1)}
 		handler := NewGraphHandler(store)
 		handler.SetResolver(resolver)
@@ -198,14 +205,19 @@ func TestGraphHandlerUsesOrphanPodAsRootOnlyForFailedScheduling(t *testing.T) {
 	})
 
 	t.Run("other orphan Pod remains retryable", func(t *testing.T) {
+		orphanIndexer := newGraphIndexer()
+		if err := orphanIndexer.Add(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "orphan", Namespace: "ns", UID: types.UID("pod-2")}}); err != nil {
+			t.Fatal(err)
+		}
+		orphanResolver := resourcegraph.NewResolver([]resourcegraph.IndexedResource{{Indexer: orphanIndexer, GVK: schema.FromAPIVersionAndKind("v1", "Pod")}}, 8)
 		store := &memorySignalStore{matched: make(chan resourcegraph.ResourceKey, 1)}
 		handler := NewGraphHandler(store)
-		handler.SetResolver(resolver)
+		handler.SetResolver(orphanResolver)
 		handler.SetEvaluator(evaluatorFunc(func(context.Context, correlation.EvaluationInput) (correlation.MatchResult, error) {
 			t.Fatal("evaluator must not be called for a non-scheduling orphan Pod")
 			return correlation.MatchResult{}, nil
 		}))
-		item := signal.Signal{ID: "backoff", ClusterID: "c", Reason: "BackOff", Resource: signal.ObjectReference{APIVersion: "v1", Kind: "Pod", Namespace: "ns", Name: "pending", UID: "pod-1"}}
+		item := signal.Signal{ID: "backoff", ClusterID: "c", Reason: "BackOff", Resource: signal.ObjectReference{APIVersion: "v1", Kind: "Pod", Namespace: "ns", Name: "orphan", UID: "pod-2"}}
 		err := handler.Handle(context.Background(), item)
 		var classified *ResolutionError
 		if !errors.As(err, &classified) || !classified.Retryable() || !errors.Is(err, resourcegraph.ErrOrphanPod) {
