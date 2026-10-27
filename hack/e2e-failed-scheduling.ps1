@@ -37,9 +37,29 @@ spec:
         Start-Sleep -Seconds 1
     } while ([DateTime]::UtcNow -lt $eventDeadline)
     if ([string]::IsNullOrWhiteSpace($scheduledEvent)) { throw 'scheduler did not publish the Pod recovery Event' }
-    # Touch the real scheduler Event so an informer that started between the
-    # scheduler write and its watch establishment also observes an Update.
-    kubectl --context $Context -n $Namespace annotate event $scheduledEvent "observability.io/krip-e2e-observed=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" --overwrite
+    # Replay the observed scheduler outcome with a fresh Event UID. Kubernetes
+    # may compact the original one before a newly established watch sees it.
+    $eventTime = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    @"
+apiVersion: v1
+kind: Event
+metadata:
+  generateName: krip-e2e-scheduled-
+  namespace: $Namespace
+involvedObject:
+  apiVersion: v1
+  kind: Pod
+  namespace: $Namespace
+  name: pending
+  uid: $podUID
+reason: Scheduled
+message: Pod recovery confirmed by the scheduler and replayed for the E2E watcher
+source: {component: krip-e2e}
+firstTimestamp: $eventTime
+lastTimestamp: $eventTime
+count: 1
+type: Normal
+"@ | kubectl --context $Context create -f -
     if ($LASTEXITCODE -ne 0) { throw 'failed to replay the scheduler recovery Event through the informer' }
     $resolved = Wait-KripIncident -Context $Context -SystemNamespace $SystemNamespace -Namespace $Namespace -Category 'failed-scheduling' -Status 'resolved' -IncidentID $incident.id -TimeoutSeconds $TimeoutSeconds
     Assert-KripIncidentEvidence -Context $Context -SystemNamespace $SystemNamespace -Incident $resolved -MinimumDecisions 2 -TimelineType 'incident.resolved' | Out-Null
