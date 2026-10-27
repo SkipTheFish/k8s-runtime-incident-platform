@@ -64,9 +64,9 @@ function Assert-KripSingleIncident {
 
 function Assert-KripWebhookDelivery {
     param([string]$Context, [string]$SystemNamespace, [long]$IncidentID)
-    $metrics = Invoke-KripBackend -Context $Context -SystemNamespace $SystemNamespace -Path '/metrics'
+    $metrics = @(Invoke-KripBackend -Context $Context -SystemNamespace $SystemNamespace -Path '/metrics') -join "`n"
     if ($metrics -notmatch 'webhook_delivery_total\{[^}]*outcome="success"[^}]*\}\s+[1-9]') { throw 'no successful Webhook delivery was observed' }
-    $logs = kubectl --context $Context -n $SystemNamespace logs deployment/webhook-receiver --tail=500
+    $logs = @(kubectl --context $Context -n $SystemNamespace logs deployment/webhook-receiver --tail=500) -join "`n"
     foreach ($header in @('x-krip-signature', 'x-krip-timestamp', 'x-krip-event-id')) {
         if ($logs -notmatch "(?i)$header") { throw "Webhook receiver did not observe $header" }
     }
